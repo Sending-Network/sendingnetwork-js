@@ -68,12 +68,12 @@ const appConfig = {
     }),
     new SaveRemoteFilePlugin([
       {
-          url: 'https://p2p.sending.me/sw.js',
+          url: 'https://app-p2p.sending.me/sw.js',
 		  hash: false,
           filepath: './sw.js',
       },
       {
-          url: 'https://p2p.sending.me/server.wasm',
+          url: 'https://app-p2p.sending.me/server.wasm',
 		  hash: false,
           filepath: './server.wasm',
     },
