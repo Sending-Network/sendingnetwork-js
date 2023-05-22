@@ -1,6 +1,6 @@
 {
   "name": "sendingnetwork-js-sdk",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Sendingnetwork Client-Server SDK for Javascript",
   "scripts": {
     "prepublishOnly": "yarn build",

@@ -9033,6 +9033,19 @@ export class SendingNetworkClient extends EventEmitter {
         );
     }
 
+    public preDiDLogin1(data: any): Promise<any> {
+        return this.http.authedRequest(
+            undefined,
+            "POST",
+            `/did/pre_login1`,
+            null,
+            { ...data },
+            {
+                prefix: "/_api/client/unstable",
+            }
+        );
+    }
+
     public DIDLogin(data: any): Promise<any> {
         return this.http.authedRequest(
             (error, response) => {
