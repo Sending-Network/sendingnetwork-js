@@ -4284,6 +4284,20 @@ export class SendingNetworkClient extends EventEmitter {
     }
 
     /**
+     * delete room
+     * @param roomId 
+     * @returns 
+     */
+    public deleteRoom(roomId: string) {
+        const path = utils.encodeUri("/rooms/$roomId/dissolve", {
+            $roomId: roomId,
+        });
+        return this.http.authedRequest(undefined, "POST", path, null, null, {
+            prefix: PREFIX_R0,
+        });
+    }
+
+    /**
      * Leaves all rooms in the chain of room upgrades based on the given room. By
      * default, this will leave all the previous and upgraded rooms, including the
      * given room. To only leave the given room and any previous rooms, keeping the
