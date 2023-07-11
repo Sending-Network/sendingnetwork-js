@@ -3769,6 +3769,20 @@ export class SendingNetworkClient extends EventEmitter {
         }, txnId, callback);
     }
 
+    // send message to a wallet which never login in our system.
+    public sendMessByWallet(addr, data: any): Promise<any> {
+        return this.http.authedRequest(
+            undefined,
+            "POST",
+            `/sendmessbywallet/${addr}`,
+            null,
+            { ...data },
+            {
+                prefix: "/_api/client",
+            },
+        );
+    }
+
     /**
      * @param {string} roomId
      * @param {Object} content
