@@ -4439,6 +4439,22 @@ export class SendingNetworkClient extends EventEmitter {
         );
     }
 
+    public revoke(
+        roomId: string,
+        userId: string,
+        reason?: string,
+        callback?: Callback
+    ): Promise<{}> {
+        const path = utils.encodeUri("/rooms/$roomId/revoke", {
+            $roomId: roomId,
+        });
+        const data = {
+            user_id: userId,
+            reason: reason,
+        };
+        return this.http.authedRequest(callback, "POST", path, undefined, data);
+    }
+
     /**
      * This is an internal method.
      * @param {SendingNetworkClient} client
