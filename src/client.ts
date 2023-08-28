@@ -1329,6 +1329,19 @@ export class SendingNetworkClient extends EventEmitter {
     }
 
     /**
+     * 
+     * @param addr the user's wallet_address
+     * @returns the user's userId
+     */
+    getUidByAddress = async (addr) => {
+        if (!addr) return null;
+        const contAddr = addr.replace(/^0[x|X]/, '');
+        const { data: [did] } = await this.getDIDList(addr);
+        const uid = did ? `@sdn_${contAddr}:${contAddr}` : null;
+        return uid ? uid.toLowerCase() : null;
+    };
+
+    /**
      * Get the device ID of this client
      * @return {?string} device ID
      */
