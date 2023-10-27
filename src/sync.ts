@@ -103,6 +103,7 @@ interface ISyncParams {
     // eslint-disable-next-line camelcase
     set_presence?: "offline" | "online" | "unavailable";
     _cacheBuster?: string | number; // not part of the API itself
+    multi_step?: boolean; // enable multi-step sync
 }
 
 // http-api mangles an abort method onto its promises
@@ -955,7 +956,9 @@ export class SyncApi {
             // for an event or a timeout before emiting the SYNCING event.
             qps.timeout = 0;
         }
-
+        if (qps.timeout === 0) { // use multi-step for initial sync
+            qps.multi_step = true;
+        }
         return qps;
     }
 
