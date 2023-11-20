@@ -286,22 +286,6 @@ export class User extends EventEmitter {
         this.emit("User.unstable_statusMessage", this);
     }
 
-    public getSdnUserSummary() {
-        let creds;
-        try {
-            creds = JSON.parse(localStorage.getItem("mx_Homeserver_Creds"));
-        } catch {}
-        const summary: ISdnUserSummary = {
-            user_id: this.userId,
-            display_name: this.displayName,
-            wallet_address: this._walletAddress,
-            avatar: this.getMxcAvatarUrl(creds?.accessToken ?? ""),
-            ens: !!this.ens,
-            source: "web",
-        };
-        return summary;
-    }
-
     /**
      * Get the mxc avatar url for the room, if one was set.
      * @return {string} the mxc avatar url or falsy
