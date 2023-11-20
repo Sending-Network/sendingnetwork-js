@@ -2226,6 +2226,19 @@ export class Room extends EventEmitter {
                 return `Inviting ${memberNamesToRoomName(thirdPartyNames)}`;
             }
         }
+
+        if (this.isDmRoom()) {
+            const sender_name = this.getMember(this.myUserId)?.events.member?.getContent().sender_display_name;
+            if (sender_name) {
+                return sender_name
+            }
+            const other_member = this.currentState.getMembers().find((m) => m.userId !== this.myUserId);
+            const other_name = other_member?.events.member?.getContent().displayname;
+            if (other_name) {
+                return other_name
+            }
+        }
+
         // let's try to figure out who was here before
         let leftNames = otherNames;
         // if we didn't have heroes, try finding them in the room state
