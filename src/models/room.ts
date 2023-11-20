@@ -147,6 +147,7 @@ export class Room extends EventEmitter {
     public oldState: RoomState;
     public currentState: RoomState;
     public privacyEnhanced = false;
+    public nickName: string;
 
     /**
      * @experimental
@@ -2144,6 +2145,33 @@ export class Room extends EventEmitter {
         return createEvent.getContent()[RoomCreateTypeField];
     }
 
+    public setNickName(nickName: string, userId?: string) {
+        return this.client
+            .setNickName(this.roomId, userId ?? this.myUserId, nickName)
+            .then(() => {
+                this.nickName = nickName;
+            });
+    }
+    public getNickName() {
+        const _nickname = this.getRoomUserNickName(this.myUserId);
+        if (_nickname) {
+            return _nickname;
+        }
+
+        if (this.nickName) {
+            return this.nickName;
+        }
+        const nickEvent = this.currentState.getStateEvents(
+            "m.room.member",
+            this.myUserId
+        );
+
+        const nickName = nickEvent?.getContent()?.["nickname"] || "";
+
+        this.nickName = nickName;
+        return this.nickName;
+    }
+
     /**
      * Returns whether the room is a space-room as defined by MSC1772.
      * @returns {boolean} true if the room's type is RoomType.Space
@@ -2157,8 +2185,44 @@ export class Room extends EventEmitter {
         let spaceParent;
         if (event) {
             spaceParent = event.getContent();
+            return !!spaceParent;
+        } else {
+            const { parent } =
+                this.currentState
+                    ?.getStateEvents(EventType.RoomCreate, "")
+                    ?.getContent() || {};
+            return !!parent;
         }
-        return !!spaceParent;
+    }
+
+    public getParentRoom(): Room | null {
+        if (this.hasSpaceParent()) {
+            const [event] =
+                this.currentState.getStateEvents(EventType.SpaceParent) || [];
+            // sometime EventType.SpaceParent event's state_key is ''
+            const { parent } =
+                this.currentState
+                    .getStateEvents(EventType.RoomCreate, "")
+                    ?.getContent() || {};
+
+            if (event) {
+                return this.client.getRoom(event.getStateKey() || parent);
+            }
+        }
+        return null;
+    }
+
+    public getRoomUserNickNameMap(): Record<string, Record<string, string>> {
+        return (
+            this.currentState
+                ?.getStateEvents(EventType.RoomNicknameList, "")
+                ?.getContent()?.nickname_list ?? {}
+        );
+    }
+
+    public getRoomUserNickName(userId?: string): string | undefined {
+        const nicknameMap = this.getRoomUserNickNameMap();
+        return nicknameMap[userId || this.client.getUserId()]?.nickname;
     }
 
     /**
@@ -2208,6 +2272,11 @@ export class Room extends EventEmitter {
         // get members that are NOT ourselves and are actually in the room.
         let otherNames = null;
         if (this.summaryHeroes) {
+            const nicknameMap =
+            this.currentState
+                ?.getStateEvents(EventType.RoomNicknameList, "")
+                ?.getContent()?.nickname_list ?? {};
+
             // if we have a summary, the member state events
             // should be in the room state
             otherNames = [];

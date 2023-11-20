@@ -8973,21 +8973,56 @@ export class SendingNetworkClient extends EventEmitter {
         );
     }
 
-    public setNickName(
-        roomId: string,
-        userId: string,
-        membershipValue: string,
-        nickName: string,
-    ) {
+    // public setNickName(
+    //     roomId: string,
+    //     userId: string,
+    //     membershipValue: string,
+    //     nickName: string,
+    // ) {
+    //     const path = utils.encodeUri(
+    //         "/rooms/$roomId/state/m.room.member/$userId",
+    //         { $roomId: roomId, $userId: userId },
+    //     );
+
+    //     return this.http.authedRequest(undefined, "PUT", path, undefined, {
+    //         membership: membershipValue,
+    //         nickname: nickName,
+    //     });
+    // }
+
+    public async setNickName(roomId: string, userId: string, nickName: string) {
         const path = utils.encodeUri(
-            "/rooms/$roomId/state/m.room.member/$userId",
-            { $roomId: roomId, $userId: userId },
+            "/rooms/$roomId/state/m.room.nickname_list",
+            { $roomId: roomId }
         );
 
+        let content = this.getRoom(roomId)
+            .currentState.getStateEvents(EventType.RoomNicknameList, "")
+            ?.getContent();
+
+        if (!content) {
+            content = await this.getRoomUserNickName(roomId);
+        }
+
         return this.http.authedRequest(undefined, "PUT", path, undefined, {
-            membership: membershipValue,
-            nickname: nickName,
+            nickname_list: {
+                ...(content?.nickname_list ?? {}),
+                [userId]: {
+                    ...(content?.nickname_list?.[userId] ?? {}),
+                    nickname: nickName,
+                },
+            },
         });
+    }
+
+    public async getRoomUserNickName(roomId: string) {
+        return this.http.authedRequest(
+            undefined,
+            "GET",
+            `/rooms/${roomId}/state/m.room.nickname_list`,
+            undefined,
+            undefined
+        );
     }
 
     // query Social Graph

@@ -41,6 +41,7 @@ export class RoomMember extends EventEmitter {
     public user?: User = null;
     public membership: string = null;
     public disambiguate = false;
+    public nickName;
     public events: {
         member?: SendingNetworkEvent;
     } = {
@@ -127,7 +128,9 @@ export class RoomMember extends EventEmitter {
      * @fires module:client~SendingNetworkClient#event:"RoomMember.membership"
      */
     public setMembershipEvent(event: SendingNetworkEvent, roomState?: RoomState): void {
-        const displayName = event.getDirectionalContent().displayname;
+        const content = event.getDirectionalContent();
+        const nickname = content.nickname;
+        const displayName = nickname || content.displayname;
 
         if (event.getType() !== "m.room.member") {
             return;
@@ -153,6 +156,7 @@ export class RoomMember extends EventEmitter {
             roomState,
             this.disambiguate,
         );
+        this.nickName = nickname;
 
         // not quite raw: we strip direction override chars so it can safely be inserted into
         // blocks of text without breaking the text direction

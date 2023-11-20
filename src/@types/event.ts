@@ -36,6 +36,7 @@ export enum EventType {
     RoomGuestAccess = "m.room.guest_access",
     RoomServerAcl = "m.room.server_acl",
     RoomTombstone = "m.room.tombstone",
+    RoomNicknameList = "m.room.nickname_list",
     /**
      * @deprecated Should not be used.
      */
@@ -85,6 +86,7 @@ export enum EventType {
     Direct = "m.direct",
     IgnoredUserList = "m.ignored_user_list",
     RemarkedUserList = "m.remarked_user_list",
+    RemarkedRoomList = "m.remarked_room_list",
 
     // to_device events
     RoomKey = "m.room_key",
