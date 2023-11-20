@@ -2145,9 +2145,9 @@ export class Room extends EventEmitter {
         return createEvent.getContent()[RoomCreateTypeField];
     }
 
-    public setNickName(nickName: string, userId?: string) {
+    public _setNickName(nickName: string, userId?: string) { // invoked only by widget for being compatible for sdm
         return this.client
-            .setNickName(this.roomId, userId ?? this.myUserId, nickName)
+            ._setNickName(this.roomId, userId ?? this.myUserId, nickName)
             .then(() => {
                 this.nickName = nickName;
             });

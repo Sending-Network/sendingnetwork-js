@@ -8973,24 +8973,24 @@ export class SendingNetworkClient extends EventEmitter {
         );
     }
 
-    // public setNickName(
-    //     roomId: string,
-    //     userId: string,
-    //     membershipValue: string,
-    //     nickName: string,
-    // ) {
-    //     const path = utils.encodeUri(
-    //         "/rooms/$roomId/state/m.room.member/$userId",
-    //         { $roomId: roomId, $userId: userId },
-    //     );
+    public setNickName(
+        roomId: string,
+        userId: string,
+        membershipValue: string,
+        nickName: string,
+    ) {
+        const path = utils.encodeUri(
+            "/rooms/$roomId/state/m.room.member/$userId",
+            { $roomId: roomId, $userId: userId },
+        );
 
-    //     return this.http.authedRequest(undefined, "PUT", path, undefined, {
-    //         membership: membershipValue,
-    //         nickname: nickName,
-    //     });
-    // }
+        return this.http.authedRequest(undefined, "PUT", path, undefined, {
+            membership: membershipValue,
+            nickname: nickName,
+        });
+    }
 
-    public async setNickName(roomId: string, userId: string, nickName: string) {
+    public async _setNickName(roomId: string, userId: string, nickName: string) { // invoked only by widget for being compatible for sdm 
         const path = utils.encodeUri(
             "/rooms/$roomId/state/m.room.nickname_list",
             { $roomId: roomId }
