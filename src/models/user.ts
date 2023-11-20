@@ -19,17 +19,20 @@ limitations under the License.
  */
 
 import { EventEmitter } from "events";
+import { RemarkStore, RemarkUser } from "./user-remark";
 
 import { SendingNetworkEvent } from "./event";
 import { WalletAccount } from "./web3";
+import { ISdnUserSummary } from "../@types/user";
 
 export class User extends EventEmitter {
     // eslint-disable-next-line camelcase
     private modified: number;
-    private walletAddress: string;
-
+    private _walletAddress: string;
     // XXX these should be read-only
     public displayName: string;
+    // public userRemark: RemarkUser;
+    public ens: number;
     public signature: string;
     public rawDisplayName: string;
     public avatarUrl: string;
@@ -80,8 +83,24 @@ export class User extends EventEmitter {
         this.displayName = userId;
         this.rawDisplayName = userId;
         this.avatarUrl = null;
-        this.signature = '';
+        this.signature = "";
         this.updateModifiedTime();
+        // this.userRemark = RemarkStore.get().getRemarkMap()[this.userId];
+        RemarkStore.get().addListener(
+            "User.remark_changed",
+            (id, userRemark, ens) => {
+                if (userId === id) {
+                    this.displayName = userRemark.name;
+                    this.ens = ens;
+                    // this.userRemark = userRemark;
+                    this.emit("User.displayName", null, this);
+                }
+            }
+        );
+    }
+
+    public get userRemark() {
+        return RemarkStore.get().getRemarkMap()[this.userId];
     }
 
     /**
@@ -99,7 +118,7 @@ export class User extends EventEmitter {
         }
         const firstFire = this.events.presence === null;
         this.events.presence = event;
-
+        const remarkName = RemarkStore.get().getRemarkMap()[this.userId]?.name;
         const eventsToFire = [];
         if (event.getContent().presence !== this.presence || firstFire) {
             eventsToFire.push("User.presence");
@@ -109,7 +128,8 @@ export class User extends EventEmitter {
             eventsToFire.push("User.avatarUrl");
         }
         if (event.getContent().displayname &&
-            event.getContent().displayname !== this.displayName) {
+            event.getContent().displayname !== this.displayName &&
+            !remarkName) {
             eventsToFire.push("User.displayName");
         }
         if (event.getContent().signature &&
@@ -128,7 +148,9 @@ export class User extends EventEmitter {
             this.presenceStatusMsg = event.getContent().status_msg;
         }
         if (event.getContent().displayname) {
-            this.displayName = event.getContent().displayname;
+            this.displayName = remarkName || event.getContent().displayname;
+            this.ens = event.getContent()?.extended_fields?.ens;
+            this.setRawDisplayName(event.getContent().displayname);
         }
         if (event.getContent().signature) {
             this.signature = event.getContent().signature;
@@ -152,15 +174,22 @@ export class User extends EventEmitter {
      * as there is no underlying SendingNetworkEvent to emit with.
      * @param {string} name The new display name.
      */
-    public setDisplayName(name: string): void {
+    public setDisplayName(name: string, ens?: number): void {
         const oldName = this.displayName;
+        const remarkName = RemarkStore.get().getRemarkMap()[this.userId]?.name;
         if (typeof name === "string") {
-            this.displayName = name;
+            this.displayName = remarkName || name;
         } else {
-            this.displayName = undefined;
+            this.displayName = remarkName;
         }
-        if (name !== oldName) {
+        if (name !== remarkName) {
+            this.setRawDisplayName(name);
+        }
+        if (name !== oldName && !remarkName) {
             this.updateModifiedTime();
+        }
+        if (ens !== undefined) {
+            this.ens = ens;
         }
     }
 
@@ -169,7 +198,7 @@ export class User extends EventEmitter {
         if (typeof signature === "string") {
             this.signature = signature;
         } else {
-            this.signature = '';
+            this.signature = "";
         }
         if (signature !== oldSignature) {
             this.updateModifiedTime();
@@ -200,6 +229,14 @@ export class User extends EventEmitter {
         if (url !== oldUrl) {
             this.updateModifiedTime();
         }
+    }
+
+    public set walletAddress(address: string) {
+        this._walletAddress = address;
+    }
+
+    public get walletAddress(): string {
+        return this._walletAddress;
     }
 
     public setWalletAddress(address: string) {
@@ -247,6 +284,34 @@ export class User extends EventEmitter {
         else this.unstable_statusMessage = event.getContent()["status"];
         this.updateModifiedTime();
         this.emit("User.unstable_statusMessage", this);
+    }
+
+    public getSdnUserSummary() {
+        let creds;
+        try {
+            creds = JSON.parse(localStorage.getItem("mx_Homeserver_Creds"));
+        } catch {}
+        const summary: ISdnUserSummary = {
+            user_id: this.userId,
+            display_name: this.displayName,
+            wallet_address: this._walletAddress,
+            avatar: this.getMxcAvatarUrl(creds?.accessToken ?? ""),
+            ens: !!this.ens,
+            source: "web",
+        };
+        return summary;
+    }
+
+    /**
+     * Get the mxc avatar url for the room, if one was set.
+     * @return {string} the mxc avatar url or falsy
+     */
+    public getMxcAvatarUrl(accessToken?: string): string | null {
+        let avatar = this.avatarUrl;
+        if (avatar && accessToken) {
+            avatar += `&access_token=${accessToken}`;
+        }
+        return avatar;
     }
 }
 

@@ -79,7 +79,7 @@ import {
 import { IIdentityServerProvider } from "./@types/IIdentityServerProvider";
 import type Request from "request";
 import { SendingNetworkScheduler } from "./scheduler";
-import { ICryptoCallbacks, IMinimalEvent, IRoomEvent, IStateEvent, NotificationCountType } from "./sendingnetwork";
+import { ICryptoCallbacks, IMinimalEvent, IRoomEvent, IStateEvent, NotificationCountType, RemarkStore } from "./sendingnetwork";
 import {
     CrossSigningKey,
     IAddSecretStorageKeyOpts,
@@ -1081,6 +1081,7 @@ export class SendingNetworkClient extends EventEmitter {
         delete window.localStorage["m.wallet"];
         this.loginOptions = null;
         delete window.localStorage["m.login_options"];
+        RemarkStore.stop();
 
         global.clearInterval(this.checkTurnServersIntervalID);
         if (this.clientWellKnownIntervalID !== undefined) {

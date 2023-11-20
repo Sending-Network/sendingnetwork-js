@@ -25,6 +25,7 @@ import * as utils from "../utils";
 import { User } from "./user";
 import { SendingNetworkEvent } from "./event";
 import { RoomState } from "./room-state";
+import { RemarkStore } from "./user-remark";
 
 export class RoomMember extends EventEmitter {
     private _isOutOfBand = false;
@@ -76,6 +77,14 @@ export class RoomMember extends EventEmitter {
         this.name = userId;
         this.rawDisplayName = userId;
         this.updateModifiedTime();
+        RemarkStore.get().addListener(
+            "User.remark_changed",
+            (id, userRemark) => {
+                if (userId === id) {
+                    this.setRemarkName(userRemark.name);
+                }
+            }
+        );
     }
 
     /**
@@ -92,6 +101,20 @@ export class RoomMember extends EventEmitter {
      */
     public isOutOfBand(): boolean {
         return this._isOutOfBand;
+    }
+
+    public setRemarkName(remarkName: string) {
+        const oldName = this.name;
+        this.name = remarkName || calculateDisplayName(
+            this.userId,
+            this.nickName || this.rawDisplayName,
+            null,
+            this.disambiguate,
+        );
+
+        if (oldName !== this.name) {
+            this.emit("RoomMember.name", void 0, this, oldName);
+        }
     }
 
     /**
@@ -360,6 +383,11 @@ function calculateDisplayName(
     disambiguate: boolean,
 ): string {
     if (disambiguate) return utils.removeDirectionOverrideChars(displayName) + " (" + selfUserId + ")";
+    const remarkName =
+        RemarkStore.get().getRemarkMap()[selfUserId]?.name;
+    if (remarkName) {
+        return remarkName;
+    }
 
     if (!displayName || displayName === selfUserId) return selfUserId;
 

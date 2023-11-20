@@ -36,6 +36,7 @@ import { GuestAccess, HistoryVisibility, JoinRule, Preset, ResizeMethod } from "
 import { Filter } from "../filter";
 import { RoomState } from "./room-state";
 import { Thread, ThreadEvent } from "./thread";
+import { RemarkStore } from "./user-remark";
 
 // These constants are used as sane defaults when the node doesn't support
 // the m.room_versions capability. In practice, KNOWN_SAFE_ROOM_VERSION should be
@@ -264,6 +265,38 @@ export class Room extends EventEmitter {
         } else {
             this.membersPromise = null;
         }
+        RemarkStore.get().addListener("User.remark_changed", (id) => {
+            const member = this.currentState
+                    .getMembers()
+                    .find((member) => member.userId === id);
+            if (member) {
+                    member.once("RoomMember.name", () => {
+                            this.recalculate();
+                    });
+            }
+        });
+        this.client.on("accountData", (newEvent, oldEvent) => {
+            if (newEvent?.getType() === EventType.RemarkedRoomList) {
+                    const newMap = oldEvent.getContent().remarked_room;
+                    for (const key in newEvent.getContent().remarked_room) {
+                            if (key === this.roomId) {
+                                    this.emit("Room.remark", newMap[this.roomId]);
+                                    this.emit("Room.name", this);
+                            }
+                    }
+            }
+        });
+        this.client.on("RoomState.events", (ev: SendingNetworkEvent) => {
+                if (ev.getType() === EventType.RoomNicknameList) {
+                        this.recalculate();
+                }
+        });
+    }
+    public get remark() {
+        return RemarkStore.get()?.getRemarkMap(
+                "m.remarked_room_list",
+                "remarked_room"
+        )[this.roomId]?.remark;
     }
 
     /**
@@ -2185,7 +2218,15 @@ export class Room extends EventEmitter {
                     return;
                 }
                 const member = this.getMember(userId);
-                otherNames.push(member ? member.name : userId);
+                const remarkName =
+                    RemarkStore.get().getRemarkMap()[userId]?.name;
+                otherNames.push(
+                    member
+                        ? remarkName ??
+                              nicknameMap[userId]?.nickname ??
+                              member.name
+                        : userId
+                );
             });
         } else {
             let otherMembers = this.currentState.getMembers().filter((m) => {
