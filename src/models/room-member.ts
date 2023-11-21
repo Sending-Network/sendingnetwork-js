@@ -35,6 +35,7 @@ export class RoomMember extends EventEmitter {
     // XXX these should be read-only
     public typing = false;
     public name: string;
+    public ens: number;
     public rawDisplayName: string;
     public powerLevel = 0;
     public powerLevelNorm = 0;
@@ -72,10 +73,11 @@ export class RoomMember extends EventEmitter {
      * @prop {SendingNetworkEvent} events.member The m.room.member event for this RoomMember.
      * @prop {boolean} disambiguate True if the member's name is disambiguated.
      */
-    constructor(public readonly roomId: string, public readonly userId: string) {
+    constructor(public readonly roomId: string, public readonly userId: string, ens?: number) {
         super();
 
         this.name = userId;
+        this.ens = ens;
         this.rawDisplayName = userId;
         this.updateModifiedTime();
         RemarkStore.get().addListener(
@@ -139,7 +141,7 @@ export class RoomMember extends EventEmitter {
         this._isOutOfBand = false;
 
         this.events.member = event;
-
+        this.ens = content?.extended_fields?.ens;
         const oldMembership = this.membership;
         this.membership = event.getDirectionalContent().membership;
 

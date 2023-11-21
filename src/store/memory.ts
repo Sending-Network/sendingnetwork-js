@@ -150,7 +150,7 @@ export class MemoryStore implements IStore {
 
         const user = this.users[member.userId] || new User(member.userId);
         if (member.name) {
-            user.setDisplayName(member.name);
+            user.setDisplayName(member.name, member.ens);
             if (member.events.member) {
                 user.setRawDisplayName(
                     member.events.member.getDirectionalContent().displayname,
