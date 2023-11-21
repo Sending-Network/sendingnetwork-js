@@ -35,6 +35,7 @@ export * from "./models/event-timeline-set";
 export * from "./models/room-member";
 export * from "./models/room-state";
 export * from "./models/user";
+export * from "./models/user-remark";
 export * from "./scheduler";
 export * from "./filter";
 export * from "./timeline-window";

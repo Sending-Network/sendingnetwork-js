@@ -25,6 +25,7 @@ import * as utils from "../utils";
 import { User } from "./user";
 import { SendingNetworkEvent } from "./event";
 import { RoomState } from "./room-state";
+import { RemarkStore } from "./user-remark";
 
 export class RoomMember extends EventEmitter {
     private _isOutOfBand = false;
@@ -40,6 +41,7 @@ export class RoomMember extends EventEmitter {
     public user?: User = null;
     public membership: string = null;
     public disambiguate = false;
+    public nickName;
     public events: {
         member?: SendingNetworkEvent;
     } = {
@@ -76,6 +78,14 @@ export class RoomMember extends EventEmitter {
         this.name = userId;
         this.rawDisplayName = userId;
         this.updateModifiedTime();
+        RemarkStore.get().addListener(
+            "User.remark_changed",
+            (id, userRemark) => {
+                if (userId === id) {
+                    this.setRemarkName(userRemark.name);
+                }
+            }
+        );
     }
 
     /**
@@ -94,6 +104,20 @@ export class RoomMember extends EventEmitter {
         return this._isOutOfBand;
     }
 
+    public setRemarkName(remarkName: string) {
+        const oldName = this.name;
+        this.name = remarkName || calculateDisplayName(
+            this.userId,
+            this.nickName || this.rawDisplayName,
+            null,
+            this.disambiguate,
+        );
+
+        if (oldName !== this.name) {
+            this.emit("RoomMember.name", void 0, this, oldName);
+        }
+    }
+
     /**
      * Update this room member's membership event. May fire "RoomMember.name" if
      * this event updates this member's name.
@@ -104,7 +128,9 @@ export class RoomMember extends EventEmitter {
      * @fires module:client~SendingNetworkClient#event:"RoomMember.membership"
      */
     public setMembershipEvent(event: SendingNetworkEvent, roomState?: RoomState): void {
-        const displayName = event.getDirectionalContent().displayname;
+        const content = event.getDirectionalContent();
+        const nickname = content.nickname;
+        const displayName = nickname || content.displayname;
 
         if (event.getType() !== "m.room.member") {
             return;
@@ -130,6 +156,7 @@ export class RoomMember extends EventEmitter {
             roomState,
             this.disambiguate,
         );
+        this.nickName = nickname;
 
         // not quite raw: we strip direction override chars so it can safely be inserted into
         // blocks of text without breaking the text direction
@@ -360,6 +387,11 @@ function calculateDisplayName(
     disambiguate: boolean,
 ): string {
     if (disambiguate) return utils.removeDirectionOverrideChars(displayName) + " (" + selfUserId + ")";
+    const remarkName =
+        RemarkStore.get().getRemarkMap()[selfUserId]?.name;
+    if (remarkName) {
+        return remarkName;
+    }
 
     if (!displayName || displayName === selfUserId) return selfUserId;
 

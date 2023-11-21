@@ -36,6 +36,7 @@ import { GuestAccess, HistoryVisibility, JoinRule, Preset, ResizeMethod } from "
 import { Filter } from "../filter";
 import { RoomState } from "./room-state";
 import { Thread, ThreadEvent } from "./thread";
+import { RemarkStore } from "./user-remark";
 
 // These constants are used as sane defaults when the node doesn't support
 // the m.room_versions capability. In practice, KNOWN_SAFE_ROOM_VERSION should be
@@ -146,6 +147,7 @@ export class Room extends EventEmitter {
     public oldState: RoomState;
     public currentState: RoomState;
     public privacyEnhanced = false;
+    public nickName: string;
 
     /**
      * @experimental
@@ -264,6 +266,38 @@ export class Room extends EventEmitter {
         } else {
             this.membersPromise = null;
         }
+        RemarkStore.get().addListener("User.remark_changed", (id) => {
+            const member = this.currentState
+                    .getMembers()
+                    .find((member) => member.userId === id);
+            if (member) {
+                    member.once("RoomMember.name", () => {
+                            this.recalculate();
+                    });
+            }
+        });
+        this.client.on("accountData", (newEvent, oldEvent) => {
+            if (newEvent?.getType() === EventType.RemarkedRoomList) {
+                    const newMap = oldEvent.getContent().remarked_room;
+                    for (const key in newEvent.getContent().remarked_room) {
+                            if (key === this.roomId) {
+                                    this.emit("Room.remark", newMap[this.roomId]);
+                                    this.emit("Room.name", this);
+                            }
+                    }
+            }
+        });
+        this.client.on("RoomState.events", (ev: SendingNetworkEvent) => {
+                if (ev.getType() === EventType.RoomNicknameList) {
+                        this.recalculate();
+                }
+        });
+    }
+    public get remark() {
+        return RemarkStore.get()?.getRemarkMap(
+                "m.remarked_room_list",
+                "remarked_room"
+        )[this.roomId]?.remark;
     }
 
     /**
@@ -2111,6 +2145,33 @@ export class Room extends EventEmitter {
         return createEvent.getContent()[RoomCreateTypeField];
     }
 
+    public _setNickName(nickName: string, userId?: string) { // invoked only by widget for being compatible for sdm
+        return this.client
+            ._setNickName(this.roomId, userId ?? this.myUserId, nickName)
+            .then(() => {
+                this.nickName = nickName;
+            });
+    }
+    public getNickName() {
+        const _nickname = this.getRoomUserNickName(this.myUserId);
+        if (_nickname) {
+            return _nickname;
+        }
+
+        if (this.nickName) {
+            return this.nickName;
+        }
+        const nickEvent = this.currentState.getStateEvents(
+            "m.room.member",
+            this.myUserId
+        );
+
+        const nickName = nickEvent?.getContent()?.["nickname"] || "";
+
+        this.nickName = nickName;
+        return this.nickName;
+    }
+
     /**
      * Returns whether the room is a space-room as defined by MSC1772.
      * @returns {boolean} true if the room's type is RoomType.Space
@@ -2124,8 +2185,44 @@ export class Room extends EventEmitter {
         let spaceParent;
         if (event) {
             spaceParent = event.getContent();
+            return !!spaceParent;
+        } else {
+            const { parent } =
+                this.currentState
+                    ?.getStateEvents(EventType.RoomCreate, "")
+                    ?.getContent() || {};
+            return !!parent;
         }
-        return !!spaceParent;
+    }
+
+    public getParentRoom(): Room | null {
+        if (this.hasSpaceParent()) {
+            const [event] =
+                this.currentState.getStateEvents(EventType.SpaceParent) || [];
+            // sometime EventType.SpaceParent event's state_key is ''
+            const { parent } =
+                this.currentState
+                    .getStateEvents(EventType.RoomCreate, "")
+                    ?.getContent() || {};
+
+            if (event) {
+                return this.client.getRoom(event.getStateKey() || parent);
+            }
+        }
+        return null;
+    }
+
+    public getRoomUserNickNameMap(): Record<string, Record<string, string>> {
+        return (
+            this.currentState
+                ?.getStateEvents(EventType.RoomNicknameList, "")
+                ?.getContent()?.nickname_list ?? {}
+        );
+    }
+
+    public getRoomUserNickName(userId?: string): string | undefined {
+        const nicknameMap = this.getRoomUserNickNameMap();
+        return nicknameMap[userId || this.client.getUserId()]?.nickname;
     }
 
     public getParentRoom(): Room | null {
@@ -2192,6 +2289,11 @@ export class Room extends EventEmitter {
         // get members that are NOT ourselves and are actually in the room.
         let otherNames = null;
         if (this.summaryHeroes) {
+            const nicknameMap =
+            this.currentState
+                ?.getStateEvents(EventType.RoomNicknameList, "")
+                ?.getContent()?.nickname_list ?? {};
+
             // if we have a summary, the member state events
             // should be in the room state
             otherNames = [];
@@ -2202,7 +2304,15 @@ export class Room extends EventEmitter {
                     return;
                 }
                 const member = this.getMember(userId);
-                otherNames.push(member ? member.name : userId);
+                const remarkName =
+                    RemarkStore.get().getRemarkMap()[userId]?.name;
+                otherNames.push(
+                    member
+                        ? remarkName ??
+                              nicknameMap[userId]?.nickname ??
+                              member.name
+                        : userId
+                );
             });
         } else {
             let otherMembers = this.currentState.getMembers().filter((m) => {
