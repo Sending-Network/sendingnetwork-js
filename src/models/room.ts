@@ -2128,23 +2128,6 @@ export class Room extends EventEmitter {
         return !!spaceParent;
     }
 
-    public getParentRoom(): Room | null {
-      if (this.hasSpaceParent()) {
-          const [event] =
-              this.currentState.getStateEvents(EventType.SpaceParent) || [];
-          // sometime EventType.SpaceParent event's state_key is ''
-          const { parent } =
-              this.currentState
-                  .getStateEvents(EventType.RoomCreate, "")
-                  ?.getContent() || {};
-
-          if (event) {
-              return this.client.getRoom(event.getStateKey() || parent);
-          }
-      }
-      return null;
-  }
-  
     /**
      * This is an internal method. Calculates the name of the room from the current
      * room state.
