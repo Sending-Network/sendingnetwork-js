@@ -20,5 +20,6 @@ limitations under the License.
 
 import "./olm";
 import "./megolm";
+import "./megolm-ratchet";
 
 export * from "./base";

@@ -9143,6 +9143,7 @@ export class SendingNetworkClient extends EventEmitter {
         return this.http.authedRequest(
             (error, response) => {
                 if (response && response.access_token && response.user_id) {
+                    this.deviceId = response.device_id;
                     this.http.opts.accessToken = response.access_token;
                     this.credentials = {
                         userId: response.user_id,
