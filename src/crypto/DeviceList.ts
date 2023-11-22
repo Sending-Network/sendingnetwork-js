@@ -399,7 +399,8 @@ export class DeviceList extends EventEmitter {
     public getUserByIdentityKey(algorithm: string, senderKey: string): string {
         if (
             algorithm !== olmlib.OLM_ALGORITHM &&
-            algorithm !== olmlib.MEGOLM_ALGORITHM
+            algorithm !== olmlib.MEGOLM_ALGORITHM &&
+            algorithm !== olmlib.MEGOLM_RATCHET_ALGORITHM
         ) {
             // we only deal in olm keys
             return null;

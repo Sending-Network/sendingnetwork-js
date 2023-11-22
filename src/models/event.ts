@@ -79,6 +79,7 @@ export interface IContent {
     signature?: string;
     "m.relates_to"?: IEventRelation;
     msgtag?: MsgTag;
+    algorithm?: string;
 }
 
 export enum MsgTag {

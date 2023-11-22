@@ -157,6 +157,7 @@ export function createClient(opts: ICreateClientOpts | string) {
     });
     opts.scheduler = opts.scheduler || new SendingNetworkScheduler();
     opts.cryptoStore = opts.cryptoStore || cryptoStoreFactory();
+
     return new SendingNetworkClient(opts);
 }
 

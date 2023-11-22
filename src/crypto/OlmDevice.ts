@@ -22,6 +22,8 @@ import { Account, InboundGroupSession, OutboundGroupSession, Session, Utility } 
 import { Logger } from "loglevel";
 import { IOlmDevice, IOutboundGroupSessionKey } from "./algorithms/megolm";
 import { IMegolmSessionData } from "./index";
+import { MEGOLM_ALGORITHM, MEGOLM_RATCHET_ALGORITHM } from "./olmlib";
+import { encryptCBC, decryptCBC } from './aes';
 
 // The maximum size of an event is 65K, and we base64 the content, so this is a
 // reasonable approximation to the biggest plaintext we can encrypt.
@@ -69,6 +71,13 @@ interface IInitOpts {
     pickleKey?: string;
 }
 
+export interface InboundGroupSessionRecord {
+    senderCurve25519Key: string;
+    sessionId: string;
+    sessionData: InboundGroupSessionData;
+    session: InboundGroupSession;
+}
+
 /**
  * data stored in the session store about an inbound group session
  *
@@ -89,6 +98,12 @@ export interface InboundGroupSessionData {
     forwardingCurve25519KeyChain: string[];
     untrusted?: boolean;
     sharedHistory?: boolean;
+}
+
+interface IEncryptedGroupMessage {
+    result: string;
+    senderKey: string;
+    sessionId: string;
 }
 
 interface IDecryptedGroupMessage {
@@ -965,16 +980,38 @@ export class OlmDevice {
      *
      * @return {string} ciphertext
      */
-    public encryptGroupMessage(sessionId: string, payloadString: string): string {
+    public async encryptGroupMessage(roomId: string, sessionId: string, payloadString: string, algorithm: string): Promise<IEncryptedGroupMessage> {
         logger.log(`encrypting msg with megolm session ${sessionId}`);
 
         checkPayloadLength(payloadString);
+        let encryptedGroupMessage : IEncryptedGroupMessage
+        if (algorithm == MEGOLM_ALGORITHM) {
+            this.getOutboundGroupSession(sessionId, (session: OutboundGroupSession) => {
+                const res = session.encrypt(payloadString);
+                this.saveOutboundGroupSession(session);
+                encryptedGroupMessage = {
+                    result : res,
+                    senderKey : "",
+                    sessionId : sessionId
+                };
+            });
+        } else {
+            const sessionRecord = await this.getCurrentGroupSession(roomId)
+            if (sessionRecord) {
+                const key = sessionRecord.session.export_session(0)
+                if (key.length < 16) {
+                    throw new Error("invalid key length")
+                }
+                const value = await encryptCBC(key.slice(0, 16), payloadString);
+                encryptedGroupMessage = {
+                    result: value,
+                    senderKey: sessionRecord.senderCurve25519Key,
+                    sessionId: sessionId
+                };
+            }
+        }
 
-        return this.getOutboundGroupSession(sessionId, (session: OutboundGroupSession) => {
-            const res = session.encrypt(payloadString);
-            this.saveOutboundGroupSession(session);
-            return res;
-        });
+        return encryptedGroupMessage
     }
 
     /**
@@ -1087,6 +1124,7 @@ export class OlmDevice {
     ): Promise<void> {
         await this.cryptoStore.doTxn(
             'readwrite', [
+                IndexedDBCryptoStore.STORE_CURRENT_GROUP_SESSIONS,
                 IndexedDBCryptoStore.STORE_INBOUND_GROUP_SESSIONS,
                 IndexedDBCryptoStore.STORE_INBOUND_GROUP_SESSIONS_WITHHELD,
                 IndexedDBCryptoStore.STORE_SHARED_HISTORY_INBOUND_GROUP_SESSIONS,
@@ -1144,6 +1182,9 @@ export class OlmDevice {
                             this.cryptoStore.storeEndToEndInboundGroupSession(
                                 senderKey, sessionId, sessionData, txn,
                             );
+                            this.cryptoStore.storeCurrentGroupSession(
+                                senderKey, sessionId, sessionData, txn,
+                            );
 
                             if (!existingSession && extraSessionData.sharedHistory) {
                                 this.cryptoStore.addSharedHistoryInboundGroupSession(
@@ -1192,6 +1233,37 @@ export class OlmDevice {
         );
     }
 
+    public async getCurrentGroupSession(roomId: string): Promise<InboundGroupSessionRecord> {
+        let sessionRecord: InboundGroupSessionRecord
+        await this.cryptoStore.doTxn(
+            'readonly', [IndexedDBCryptoStore.STORE_CURRENT_GROUP_SESSIONS], (txn) => {
+                this.cryptoStore.getCurrentGroupSession(
+                    roomId, txn, (senderKey: string, sessionId: string, groupSession: InboundGroupSessionData) => {
+                        if (groupSession === null) {
+                            console.log(`room ${roomId} has no current session`)
+                            return;
+                        }
+                        if (roomId !== null && roomId !== groupSession.room_id) {
+                            throw new Error(
+                                "Mismatched room_id for inbound group session (expected " +
+                                groupSession.room_id + ", was " + roomId + ")",
+                            );
+                        }
+                        this.unpickleInboundGroupSession(groupSession, (session: InboundGroupSession) => {
+                            sessionRecord = {
+                                senderCurve25519Key: senderKey,
+                                sessionId: sessionId,
+                                sessionData: groupSession,
+                                session: session
+                            }
+                        });
+                    },
+                );
+            }
+        )
+        return sessionRecord
+    }
+
     /**
      * Decrypt a received message with an inbound group session
      *
@@ -1210,6 +1282,7 @@ export class OlmDevice {
      */
     public async decryptGroupMessage(
         roomId: string,
+        algorithm: string,
         senderKey: string,
         sessionId: string,
         body: string,
@@ -1223,95 +1296,132 @@ export class OlmDevice {
         // the end
         let error: Error;
 
-        await this.cryptoStore.doTxn(
-            'readwrite', [
-                IndexedDBCryptoStore.STORE_INBOUND_GROUP_SESSIONS,
-                IndexedDBCryptoStore.STORE_INBOUND_GROUP_SESSIONS_WITHHELD,
-            ], (txn) => {
-                this.getInboundGroupSession(
-                    roomId, senderKey, sessionId, txn, (session, sessionData, withheld) => {
-                        if (session === null) {
-                            if (withheld) {
-                                error = new algorithms.DecryptionError(
-                                    "MEGOLM_UNKNOWN_INBOUND_SESSION_ID",
-                                    calculateWithheldMessage(withheld),
-                                    {
-                                        session: senderKey + '|' + sessionId,
-                                    },
-                                );
-                            }
-                            result = null;
-                            return;
+        if (algorithm == MEGOLM_RATCHET_ALGORITHM) {
+            let session: InboundGroupSession
+            let sessionData: InboundGroupSessionData
+            await this.cryptoStore.doTxn(
+                'readonly', [
+                    IndexedDBCryptoStore.STORE_INBOUND_GROUP_SESSIONS,
+                    IndexedDBCryptoStore.STORE_INBOUND_GROUP_SESSIONS_WITHHELD,
+                ], (txn) => {
+                    this.getInboundGroupSession(
+                        roomId, senderKey, sessionId, txn, (groupSession, groupSessionData, groupWithheld) => {
+                            session = groupSession;
+                            sessionData = groupSessionData
                         }
-                        let res;
-                        try {
-                            res = session.decrypt(body);
-                        } catch (e) {
-                            if (e && e.message === 'OLM.UNKNOWN_MESSAGE_INDEX' && withheld) {
-                                error = new algorithms.DecryptionError(
-                                    "MEGOLM_UNKNOWN_INBOUND_SESSION_ID",
-                                    calculateWithheldMessage(withheld),
-                                    {
-                                        session: senderKey + '|' + sessionId,
-                                    },
-                                );
-                            } else {
-                                error = e;
-                            }
-                            return;
-                        }
-
-                        let plaintext: string = res.plaintext;
-                        if (plaintext === undefined) {
-                            // Compatibility for older olm versions.
-                            plaintext = res;
-                        } else {
-                            // Check if we have seen this message index before to detect replay attacks.
-                            // If the event ID and timestamp are specified, and the match the event ID
-                            // and timestamp from the last time we used this message index, then we
-                            // don't consider it a replay attack.
-                            const messageIndexKey = (
-                                senderKey + "|" + sessionId + "|" + res.message_index
-                            );
-                            if (messageIndexKey in this.inboundGroupSessionMessageIndexes) {
-                                const msgInfo = (
-                                    this.inboundGroupSessionMessageIndexes[messageIndexKey]
-                                );
-                                if (
-                                    msgInfo.id !== eventId ||
-                                    msgInfo.timestamp !== timestamp
-                                ) {
-                                    error = new Error(
-                                        "Duplicate message index, possible replay attack: " +
-                                        messageIndexKey,
+                    )
+                }
+            )
+            if (session) {
+                const key = session.export_session(0)
+                if (key.length < 16) {
+                    error = new Error("invalid key length")
+                }
+                const plaintext = await decryptCBC(key.slice(0, 16), body)
+                result = {
+                    result: plaintext,
+                    keysClaimed: sessionData.keysClaimed || {},
+                    senderKey: senderKey,
+                    forwardingCurve25519KeyChain: (
+                        sessionData.forwardingCurve25519KeyChain || []
+                    ),
+                    untrusted: sessionData.untrusted,
+                };
+            } else {
+                error = new algorithms.DecryptionError("MEGOLM_UNKNOWN_INBOUND_SESSION_ID", "DecryptionError")
+            }
+        } else {
+            await this.cryptoStore.doTxn(
+                'readwrite', [
+                    IndexedDBCryptoStore.STORE_INBOUND_GROUP_SESSIONS,
+                    IndexedDBCryptoStore.STORE_INBOUND_GROUP_SESSIONS_WITHHELD,
+                ], (txn) => {
+                    this.getInboundGroupSession(
+                        roomId, senderKey, sessionId, txn, (session, sessionData, withheld) => {
+                            if (session === null) {
+                                if (withheld) {
+                                    error = new algorithms.DecryptionError(
+                                        "MEGOLM_UNKNOWN_INBOUND_SESSION_ID",
+                                        calculateWithheldMessage(withheld),
+                                        {
+                                            session: senderKey + '|' + sessionId,
+                                        },
                                     );
-                                    return;
                                 }
+                                result = null;
+                                return;
                             }
-                            this.inboundGroupSessionMessageIndexes[messageIndexKey] = {
-                                id: eventId,
-                                timestamp: timestamp,
-                            };
-                        }
+                            let res;
+                            try {
+                                res = session.decrypt(body);
+                            } catch (e) {
+                                if (e && e.message === 'OLM.UNKNOWN_MESSAGE_INDEX' && withheld) {
+                                    error = new algorithms.DecryptionError(
+                                        "MEGOLM_UNKNOWN_INBOUND_SESSION_ID",
+                                        calculateWithheldMessage(withheld),
+                                        {
+                                            session: senderKey + '|' + sessionId,
+                                        },
+                                    );
+                                } else {
+                                    error = e;
+                                }
+                                return;
+                            }
 
-                        sessionData.session = session.pickle(this.pickleKey);
-                        this.cryptoStore.storeEndToEndInboundGroupSession(
-                            senderKey, sessionId, sessionData, txn,
-                        );
-                        result = {
-                            result: plaintext,
-                            keysClaimed: sessionData.keysClaimed || {},
-                            senderKey: senderKey,
-                            forwardingCurve25519KeyChain: (
-                                sessionData.forwardingCurve25519KeyChain || []
-                            ),
-                            untrusted: sessionData.untrusted,
-                        };
-                    },
-                );
-            },
-            logger.withPrefix("[decryptGroupMessage]"),
-        );
+                            let plaintext: string = res.plaintext;
+                            if (plaintext === undefined) {
+                                // Compatibility for older olm versions.
+                                plaintext = res;
+                            } else {
+                                // Check if we have seen this message index before to detect replay attacks.
+                                // If the event ID and timestamp are specified, and the match the event ID
+                                // and timestamp from the last time we used this message index, then we
+                                // don't consider it a replay attack.
+                                const messageIndexKey = (
+                                    senderKey + "|" + sessionId + "|" + res.message_index
+                                );
+                                if (messageIndexKey in this.inboundGroupSessionMessageIndexes) {
+                                    const msgInfo = (
+                                        this.inboundGroupSessionMessageIndexes[messageIndexKey]
+                                    );
+                                    if (
+                                        msgInfo.id !== eventId ||
+                                        msgInfo.timestamp !== timestamp
+                                    ) {
+                                        error = new Error(
+                                            "Duplicate message index, possible replay attack: " +
+                                            messageIndexKey,
+                                        );
+                                        return;
+                                    }
+                                }
+                                this.inboundGroupSessionMessageIndexes[messageIndexKey] = {
+                                    id: eventId,
+                                    timestamp: timestamp,
+                                };
+                            }
+
+                            sessionData.session = session.pickle(this.pickleKey);
+                            this.cryptoStore.storeEndToEndInboundGroupSession(
+                                senderKey, sessionId, sessionData, txn,
+                            );
+
+                            result = {
+                                result: plaintext,
+                                keysClaimed: sessionData.keysClaimed || {},
+                                senderKey: senderKey,
+                                forwardingCurve25519KeyChain: (
+                                    sessionData.forwardingCurve25519KeyChain || []
+                                ),
+                                untrusted: sessionData.untrusted,
+                            };
+                        },
+                    );
+                },
+                logger.withPrefix("[decryptGroupMessage]"),
+            );
+        }
 
         if (error) {
             throw error;

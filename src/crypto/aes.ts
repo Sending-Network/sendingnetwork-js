@@ -275,3 +275,58 @@ const ZERO_STR = "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0
 export function calculateKeyCheck(key: Uint8Array, iv?: string): Promise<IEncryptedPayload> {
     return encryptAES(ZERO_STR, key, "", iv);
 }
+
+export async function encryptCBC(key: string, data: string) : Promise<string> {
+    console.log(`aes encrypt with key: ${key}, data: ${data}`)
+    const encoder = new TextEncoder()
+    const keyBytes = encoder.encode(key)
+    const iv = encoder.encode(key)
+    const dataBytes = encoder.encode(data)
+
+    const aesKey = await window.crypto.subtle.importKey(
+        'raw',
+        keyBytes,
+        { name: 'AES-CBC' },
+        false,
+        ['encrypt']
+      );
+
+    const cipherBytes = await window.crypto.subtle.encrypt(
+        {
+            name: "AES-CBC",
+            iv: iv,
+        },
+        aesKey,
+        dataBytes,
+    );
+
+    return encodeBase64(cipherBytes)
+}
+
+export async function decryptCBC(key: string, cipherText: string) : Promise<string> {
+    console.log(`aes decrypt with key: ${key}, data: ${cipherText}`)
+    const encoder = new TextEncoder()
+    const decoder = new TextDecoder()
+    const keyBytes = encoder.encode(key)
+    const iv = encoder.encode(key)
+    const cipherBytes = decodeBase64(cipherText)
+
+    const aesKey = await window.crypto.subtle.importKey(
+        'raw',
+        keyBytes,
+        { name: 'AES-CBC' },
+        false,
+        ['decrypt']
+      );
+
+      const plaintextBytes = await window.crypto.subtle.decrypt(
+        {
+            name: "AES-CBC",
+            iv: iv,
+        },
+        aesKey,
+        cipherBytes,
+    );
+
+    return decoder.decode(plaintextBytes)
+}
