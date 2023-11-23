@@ -276,6 +276,7 @@ export class Room extends EventEmitter {
                     });
             }
         });
+        RemarkStore.get().setMaxListeners(0)
         this.client.on("accountData", (newEvent, oldEvent) => {
             if (newEvent?.getType() === EventType.RemarkedRoomList) {
                     const newMap = oldEvent.getContent().remarked_room;
@@ -292,6 +293,7 @@ export class Room extends EventEmitter {
                         this.recalculate();
                 }
         });
+        this.client.setMaxListeners(0)
     }
     public get remark() {
         return RemarkStore.get()?.getRemarkMap(
