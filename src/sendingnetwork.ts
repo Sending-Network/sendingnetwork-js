@@ -21,6 +21,7 @@ import { SendingNetworkClient } from "./client";
 import { ICreateClientOpts } from "./client";
 import { DeviceTrustLevel } from "./crypto/CrossSigning";
 import { ISecretStorageKeyInfo } from "./crypto/api";
+import Olm from "@sending-network/olm";
 
 export * from "./client";
 export * from "./http-api";
@@ -122,6 +123,49 @@ export interface ICryptoCallbacks {
     getBackupKey?: () => Promise<Uint8Array>;
 }
 
+async function loadOlm() {
+    /* Load Olm. We try the WebAssembly version first, and then the legacy,
+     * asm.js version if that fails. For this reason we need to wait for this
+     * to finish before continuing to load the rest of the app. In future
+     * we could somehow pass a promise down to react-sdk and have it wait on
+     * that so olm can be loading in parallel with the rest of the app.
+     *
+     * We also need to tell the Olm js to look for its wasm file at the same
+     * level as index.html. It really should be in the same place as the js,
+     * ie. in the bundle directory, but as far as I can tell this is
+     * completely impossible with webpack. We do, however, use a hashed
+     * filename to avoid caching issues.
+     */
+    debugger
+    return Olm.init({
+        locateFile: () => './olm.wasm'
+    })
+        .then((res) => {
+            console.log("Using WebAssembly Olm", res);
+        })
+        .catch((e) => {
+            console.error("Failed to load Olm: trying legacy version", e);
+            return new Promise((resolve, reject) => {
+                const s = document.createElement("script");
+                s.src = "olm_legacy.js"; // XXX: This should be cache-busted too
+                s.onload = resolve;
+                s.onerror = reject;
+                document.body.appendChild(s);
+            })
+                .then(() => {
+                    // Init window.Olm, ie. the one just loaded by the script tag,
+                    // not 'Olm' which is still the failed wasm version.
+                    return window.Olm.init();
+                })
+                .then(() => {
+                    console.log("Using legacy Olm");
+                })
+                .catch((e) => {
+                    console.log("Both WebAssembly and asm.js Olm failed!", e);
+                });
+        });
+}
+
 /**
  * Construct a Sendingnetwork Client. Similar to {@link module:client.SendingNetworkClient}
  * except that the 'request', 'store' and 'scheduler' dependencies are satisfied.
@@ -145,7 +189,7 @@ export interface ICryptoCallbacks {
  * @see {@link module:client.SendingNetworkClient} for the full list of options for
  * <code>opts</code>.
  */
-export function createClient(opts: ICreateClientOpts | string) {
+export async function createClient(opts: ICreateClientOpts | string) {
     if (typeof opts === "string") {
         opts = {
             "baseUrl": opts as string,
@@ -157,6 +201,8 @@ export function createClient(opts: ICreateClientOpts | string) {
     });
     opts.scheduler = opts.scheduler || new SendingNetworkScheduler();
     opts.cryptoStore = opts.cryptoStore || cryptoStoreFactory();
+
+    await loadOlm();
     return new SendingNetworkClient(opts);
 }
 
