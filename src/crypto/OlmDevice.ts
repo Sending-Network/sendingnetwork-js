@@ -75,7 +75,7 @@ export interface InboundGroupSessionRecord {
     senderCurve25519Key: string;
     sessionId: string;
     sessionData: InboundGroupSessionData;
-    session: InboundGroupSession;
+    sessionKey: string;
 }
 
 /**
@@ -998,11 +998,13 @@ export class OlmDevice {
         } else {
             const sessionRecord = await this.getCurrentGroupSession(roomId)
             if (sessionRecord) {
-                const key = sessionRecord.session.export_session(0)
-                if (key.length < 16) {
+                const key = sessionRecord.sessionKey
+                console.log(`aes encrypt with key: ${key}, data: ${payloadString}`)
+                const aesKey = new TextEncoder().encode(key)
+                if (aesKey.length < 16) {
                     throw new Error("invalid key length")
                 }
-                const value = await encryptCBC(key.slice(0, 16), payloadString);
+                const value = await encryptCBC(aesKey.subarray(0, 16), payloadString);
                 encryptedGroupMessage = {
                     result: value,
                     senderKey: sessionRecord.senderCurve25519Key,
@@ -1239,7 +1241,7 @@ export class OlmDevice {
             'readonly', [IndexedDBCryptoStore.STORE_CURRENT_GROUP_SESSIONS], (txn) => {
                 this.cryptoStore.getCurrentGroupSession(
                     roomId, txn, (senderKey: string, sessionId: string, groupSession: InboundGroupSessionData) => {
-                        if (groupSession === null) {
+                        if (!senderKey || !sessionId || !groupSession) {
                             console.log(`room ${roomId} has no current session`)
                             return;
                         }
@@ -1254,7 +1256,7 @@ export class OlmDevice {
                                 senderCurve25519Key: senderKey,
                                 sessionId: sessionId,
                                 sessionData: groupSession,
-                                session: session
+                                sessionKey: session.export_session(0)
                             }
                         });
                     },
@@ -1297,7 +1299,7 @@ export class OlmDevice {
         let error: Error;
 
         if (algorithm == MEGOLM_RATCHET_ALGORITHM) {
-            let session: InboundGroupSession
+            let sessionKey: string
             let sessionData: InboundGroupSessionData
             await this.cryptoStore.doTxn(
                 'readonly', [
@@ -1306,18 +1308,21 @@ export class OlmDevice {
                 ], (txn) => {
                     this.getInboundGroupSession(
                         roomId, senderKey, sessionId, txn, (groupSession, groupSessionData, groupWithheld) => {
-                            session = groupSession;
-                            sessionData = groupSessionData
+                            if (groupSession) {
+                                sessionKey = groupSession.export_session(0);
+                                sessionData = groupSessionData
+                            }
                         }
                     )
                 }
             )
-            if (session) {
-                const key = session.export_session(0)
-                if (key.length < 16) {
+            if (sessionKey) {
+                console.log(`aes decrypt with key: ${sessionKey}, data: ${body}`)
+                const aesKey = new TextEncoder().encode(sessionKey)
+                if (aesKey.length < 16) {
                     error = new Error("invalid key length")
                 }
-                const plaintext = await decryptCBC(key.slice(0, 16), body)
+                const plaintext = await decryptCBC(aesKey.subarray(0, 16), body)
                 result = {
                     result: plaintext,
                     keysClaimed: sessionData.keysClaimed || {},
@@ -1328,7 +1333,7 @@ export class OlmDevice {
                     untrusted: sessionData.untrusted,
                 };
             } else {
-                error = new algorithms.DecryptionError("MEGOLM_UNKNOWN_INBOUND_SESSION_ID", "DecryptionError")
+                return null
             }
         } else {
             await this.cryptoStore.doTxn(

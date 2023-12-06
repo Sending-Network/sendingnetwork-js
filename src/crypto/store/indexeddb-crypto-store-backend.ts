@@ -763,7 +763,7 @@ export class Backend implements CryptoStore {
         const getReq = objectStore.get(roomId);
         getReq.onsuccess = function() {
             try {
-                getReq.result && func(getReq.result.senderCurve25519Key, getReq.result.sessionId, getReq.result.session);
+                func(getReq.result?.senderCurve25519Key, getReq.result?.sessionId, getReq.result?.session);
             } catch (e) {
                 abortWithException(txn, e);
             }

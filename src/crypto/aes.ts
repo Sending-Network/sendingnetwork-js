@@ -276,16 +276,13 @@ export function calculateKeyCheck(key: Uint8Array, iv?: string): Promise<IEncryp
     return encryptAES(ZERO_STR, key, "", iv);
 }
 
-export async function encryptCBC(key: string, data: string) : Promise<string> {
-    console.log(`aes encrypt with key: ${key}, data: ${data}`)
-    const encoder = new TextEncoder()
-    const keyBytes = encoder.encode(key)
-    const iv = encoder.encode(key)
-    const dataBytes = encoder.encode(data)
+export async function encryptCBC(key: Uint8Array, data: string) : Promise<string> {
+    const iv = key.subarray(0, 16)
+    const dataBytes = new TextEncoder().encode(data)
 
     const aesKey = await window.crypto.subtle.importKey(
         'raw',
-        keyBytes,
+        key,
         { name: 'AES-CBC' },
         false,
         ['encrypt']
@@ -303,17 +300,13 @@ export async function encryptCBC(key: string, data: string) : Promise<string> {
     return encodeBase64(cipherBytes)
 }
 
-export async function decryptCBC(key: string, cipherText: string) : Promise<string> {
-    console.log(`aes decrypt with key: ${key}, data: ${cipherText}`)
-    const encoder = new TextEncoder()
-    const decoder = new TextDecoder()
-    const keyBytes = encoder.encode(key)
-    const iv = encoder.encode(key)
+export async function decryptCBC(key: Uint8Array, cipherText: string) : Promise<string> {
+    const iv = key.subarray(0, 16)
     const cipherBytes = decodeBase64(cipherText)
 
     const aesKey = await window.crypto.subtle.importKey(
         'raw',
-        keyBytes,
+        key,
         { name: 'AES-CBC' },
         false,
         ['decrypt']
@@ -328,5 +321,5 @@ export async function decryptCBC(key: string, cipherText: string) : Promise<stri
         cipherBytes,
     );
 
-    return decoder.decode(plaintextBytes)
+    return new TextDecoder().decode(plaintextBytes)
 }
