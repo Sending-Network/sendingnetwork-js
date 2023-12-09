@@ -2834,6 +2834,14 @@ export class Crypto extends EventEmitter {
         // to get key changes between the sync token in the device list and the 'old'
         // sync token used here to make sure we didn't miss any.
         await this.evalDeviceListChanges(syncDeviceLists);
+        await this.cryptoStore.doTxn(
+            'readwrite', [IndexedDBCryptoStore.STORE_CURRENT_GROUP_SESSIONS], (txn) => {
+                for (const room of this.getTrackedE2eRooms()) {
+                    console.error('deleteCurrentGroupSession: ', room.roomId, txn)
+                    this.cryptoStore.deleteCurrentGroupSession(room.roomId, txn)
+                }
+            },
+        );
     }
 
     /**
