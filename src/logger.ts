@@ -29,6 +29,8 @@ import log, { Logger } from "loglevel";
 // Part of #332 is introducing a logging library in the first place.
 const DEFAULT_NAMESPACE = "sendingnetwork";
 
+const LOG_TIME = new Date();
+
 // because rageshakes in react-sdk hijack the console log, also at module load time,
 // initializing the logger here races with the initialization of rageshakes.
 // to avoid the issue, we override the methodFactory of loglevel that binds to the
@@ -40,6 +42,8 @@ log.methodFactory = function(methodName, logLevel, loggerName) {
         if (this.prefix) {
             args.unshift(this.prefix);
         }
+        LOG_TIME.setTime(Date.now());
+        args.unshift(`[${LOG_TIME.toLocaleTimeString("en-GB")}.${(LOG_TIME.getMilliseconds() + 1000).toString().slice(1)}]`)
         /* eslint-enable @typescript-eslint/no-invalid-this */
         const supportedByConsole = methodName === "error" ||
             methodName === "warn" ||
