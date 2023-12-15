@@ -261,6 +261,7 @@ class MegolmRatchetEncryption extends EncryptionAlgorithm {
                 if (!session) {
                     // the sessionId is from other members and no need to share.
                     session = new OutboundSessionInfo(sessionRecord.sessionId, sharedHistory)
+                    session.record = sessionRecord;
                     skipShare = true;
                     return session
                 }
@@ -456,7 +457,7 @@ class MegolmRatchetEncryption extends EncryptionAlgorithm {
         const sessionId = this.olmDevice.createOutboundGroupSession();
         const key = this.olmDevice.getOutboundGroupSessionKey(sessionId);
 
-        await this.olmDevice.addInboundGroupSession(
+        const sessionRecord = await this.olmDevice.addInboundGroupSession(
             this.roomId, this.olmDevice.deviceCurve25519Key, [], sessionId,
             key.key, { ed25519: this.olmDevice.deviceEd25519Key }, false,
             { sharedHistory },
@@ -465,7 +466,9 @@ class MegolmRatchetEncryption extends EncryptionAlgorithm {
         // don't wait for it to complete
         this.crypto.backupManager.backupGroupSession(this.olmDevice.deviceCurve25519Key, sessionId);
 
-        return new OutboundSessionInfo(sessionId, sharedHistory);
+        const session = new OutboundSessionInfo(sessionId, sharedHistory);
+        (session as any).record = sessionRecord;
+        return session
     }
 
     /**
@@ -1027,6 +1030,7 @@ class MegolmRatchetEncryption extends EncryptionAlgorithm {
         }
 
         const session = await this.ensureCurrentGroupSession(room, devicesInRoom, blocked);
+        const record = (session as any).record;
         const payloadJson = {
             room_id: this.roomId,
             type: eventType,
@@ -1034,7 +1038,7 @@ class MegolmRatchetEncryption extends EncryptionAlgorithm {
         };
 
         const encryptedGroupMessage = await this.olmDevice.encryptGroupMessage(
-            this.roomId, session.sessionId, JSON.stringify(payloadJson), olmlib.MEGOLM_RATCHET_ALGORITHM
+            this.roomId, session.sessionId, JSON.stringify(payloadJson), olmlib.MEGOLM_RATCHET_ALGORITHM, record
         );
         const encryptedContent = {
             algorithm: olmlib.MEGOLM_RATCHET_ALGORITHM,

@@ -980,7 +980,7 @@ export class OlmDevice {
      *
      * @return {string} ciphertext
      */
-    public async encryptGroupMessage(roomId: string, sessionId: string, payloadString: string, algorithm: string): Promise<IEncryptedGroupMessage> {
+    public async encryptGroupMessage(roomId: string, sessionId: string, payloadString: string, algorithm: string, record?: InboundGroupSessionRecord): Promise<IEncryptedGroupMessage> {
         logger.log(`encrypting msg with megolm session ${sessionId}`);
 
         checkPayloadLength(payloadString);
@@ -996,7 +996,7 @@ export class OlmDevice {
                 };
             });
         } else {
-            const sessionRecord = await this.getCurrentGroupSession(roomId)
+            const sessionRecord = record || await this.getCurrentGroupSession(roomId)
             if (sessionRecord) {
                 const key = sessionRecord.sessionKey
                 console.log(`aes encrypt with key: ${key}, data: ${payloadString}`)
@@ -1124,6 +1124,7 @@ export class OlmDevice {
         exportFormat: boolean,
         extraSessionData: Record<string, any> = {},
     ): Promise<void> {
+        let record;
         await this.cryptoStore.doTxn(
             'readwrite', [
                 IndexedDBCryptoStore.STORE_CURRENT_GROUP_SESSIONS,
@@ -1193,6 +1194,13 @@ export class OlmDevice {
                                     roomId, senderKey, sessionId, txn,
                                 );
                             }
+
+                            record = {
+                                senderCurve25519Key: senderKey,
+                                sessionId: sessionId,
+                                sessionData: sessionData,
+                                sessionKey: session.export_session(0)
+                            }
                         } finally {
                             session.free();
                         }
@@ -1201,6 +1209,7 @@ export class OlmDevice {
             },
             logger.withPrefix("[addInboundGroupSession]"),
         );
+        return record;
     }
 
     /**
