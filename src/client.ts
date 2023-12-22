@@ -2034,11 +2034,11 @@ export class SendingNetworkClient extends EventEmitter {
      * send, in order to speed up sending of the message.
      * @param {module:models/room} room the room the event is in
      */
-    public prepareToEncrypt(room: Room) {
+    public prepareToEncrypt(room: Room, algorithm: string) {
         if (!this.crypto) {
             throw new Error("End-to-end encryption disabled");
         }
-        return this.crypto.prepareToEncrypt(room);
+        return this.crypto.prepareToEncrypt(room, algorithm);
     }
 
     /**
