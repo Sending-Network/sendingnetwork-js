@@ -2834,9 +2834,21 @@ export class Crypto extends EventEmitter {
         await this.evalDeviceListChanges(syncDeviceLists);
         await this.cryptoStore.doTxn(
             'readwrite', [IndexedDBCryptoStore.STORE_CURRENT_GROUP_SESSIONS], (txn) => {
+                const allUsers: Array<string> = []
+                if (syncDeviceLists.changed && Array.isArray(syncDeviceLists.changed)) {
+                    allUsers.push(...syncDeviceLists.changed)
+                }
+                if (syncDeviceLists.left && Array.isArray(syncDeviceLists.left)) {
+                    allUsers.push(...syncDeviceLists.left)
+                }
                 for (const room of this.getTrackedE2eRooms()) {
-                    console.error('deleteCurrentGroupSession: ', room.roomId, txn)
-                    this.cryptoStore.deleteCurrentGroupSession(room.roomId, txn)
+                    const hasMember = room.getMembers().some((member: RoomMember)=>{
+                        return allUsers.includes(member.userId);
+                    })
+                    if (hasMember) {
+                        console.info('deleteCurrentGroupSession: ', room.roomId)
+                        this.cryptoStore.deleteCurrentGroupSession(room.roomId, txn)
+                    }
                 }
             },
         );
