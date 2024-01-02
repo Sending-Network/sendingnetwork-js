@@ -786,8 +786,8 @@ export class Backend implements CryptoStore {
         putReq.onsuccess = function() {
             console.log("put current_group_session success")
         }
-        putReq.onerror = function() {
-            console.log("put current_group_session error")
+        putReq.onerror = function(event) {
+            console.log("put current_group_session error", event)
         }
     }
 

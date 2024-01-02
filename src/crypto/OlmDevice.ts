@@ -1199,7 +1199,7 @@ export class OlmDevice {
                                 senderCurve25519Key: senderKey,
                                 sessionId: sessionId,
                                 sessionData: sessionData,
-                                sessionKey: session.export_session(0)
+                                sessionKey: session.export_session(session.first_known_index())
                             }
                         } finally {
                             session.free();
