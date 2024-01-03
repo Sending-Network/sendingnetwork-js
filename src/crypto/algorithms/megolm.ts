@@ -1354,6 +1354,10 @@ class MegolmDecryption extends DecryptionAlgorithm {
     }
 
     private requestKeysForEvent(event: SendingNetworkEvent): void {
+        if (event.getTs() < this.crypto.getInitTime()) {
+            console.info(`skip requesting keys for old event: ${event.getId()}`)
+            return
+        }
         const wireContent = event.getWireContent();
 
         const recipients = event.getKeyRequestRecipients(this.userId);

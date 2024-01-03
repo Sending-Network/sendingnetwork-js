@@ -259,6 +259,7 @@ export class Crypto extends EventEmitter {
 
     private oneTimeKeyCount: number;
     private needsNewFallback: boolean;
+    private initTime: number = 0;
 
     /**
      * Cryptography bits
@@ -400,6 +401,7 @@ export class Crypto extends EventEmitter {
      */
     public async init({ exportedOlmDevice, pickleKey }: IInitOpts = {}): Promise<void> {
         logger.log("Crypto: initialising Olm...");
+        this.initTime = Date.now();
         await global.Olm.init();
         logger.log(exportedOlmDevice
             ? "Crypto: initialising Olm device from exported device..."
@@ -453,6 +455,10 @@ export class Crypto extends EventEmitter {
 
         logger.log("Crypto: checking for key backup...");
         this.backupManager.checkAndStart();
+    }
+
+    public getInitTime(): number {
+        return this.initTime
     }
 
     /**
