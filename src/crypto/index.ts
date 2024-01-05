@@ -3292,7 +3292,7 @@ export class Crypto extends EventEmitter {
         // update the events to show a message indicating that the olm session was
         // wedged.
         const retryDecryption = () => {
-            const roomDecryptors = this.getRoomDecryptors(olmlib.MEGOLM_ALGORITHM);
+            const roomDecryptors = this.getRoomDecryptors(algorithm);
             for (const decryptor of roomDecryptors) {
                 decryptor.retryDecryptionFromSender(deviceKey);
             }

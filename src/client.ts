@@ -1281,7 +1281,9 @@ export class SendingNetworkClient extends EventEmitter {
      *
      * @returns {Promise} Promise which resolves when the stores have been cleared.
      */
-    public clearStores(): Promise<void> {
+    public clearStores(opts? :{
+        deleteCrypto?: boolean;
+    }): Promise<void> {
         if (this.clientRunning) {
             throw new Error("Cannot clear stores while client is running");
         }
@@ -1289,7 +1291,7 @@ export class SendingNetworkClient extends EventEmitter {
         const promises = [];
 
         promises.push(this.store.deleteAllData());
-        if (this.cryptoStore) {
+        if (this.cryptoStore && opts?.deleteCrypto) {
             promises.push(this.cryptoStore.deleteAllData());
         }
         return Promise.all(promises).then(); // .then to fix types

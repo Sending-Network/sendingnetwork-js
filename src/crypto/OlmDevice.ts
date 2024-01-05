@@ -1265,7 +1265,7 @@ export class OlmDevice {
                                 senderCurve25519Key: senderKey,
                                 sessionId: sessionId,
                                 sessionData: groupSession,
-                                sessionKey: session.export_session(0)
+                                sessionKey: session.export_session(session.first_known_index())
                             }
                         });
                     },
@@ -1318,7 +1318,7 @@ export class OlmDevice {
                     this.getInboundGroupSession(
                         roomId, senderKey, sessionId, txn, (groupSession, groupSessionData, groupWithheld) => {
                             if (groupSession) {
-                                sessionKey = groupSession.export_session(0);
+                                sessionKey = groupSession.export_session(groupSession.first_known_index());
                                 sessionData = groupSessionData
                             }
                         }
