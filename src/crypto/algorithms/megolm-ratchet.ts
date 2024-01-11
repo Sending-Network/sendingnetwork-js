@@ -586,6 +586,7 @@ class MegolmRatchetEncryption extends EncryptionAlgorithm {
         const promises = [];
         for (let i = 0; i < userDeviceMap.length; i++) {
             const encryptedContent = {
+                trace_id: session.sessionId,
                 algorithm: olmlib.OLM_ALGORITHM,
                 sender_key: this.olmDevice.deviceCurve25519Key,
                 ciphertext: {},
