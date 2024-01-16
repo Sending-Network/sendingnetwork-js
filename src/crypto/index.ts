@@ -2682,7 +2682,10 @@ export class Crypto extends EventEmitter {
                 return null;
             }
 
-            const alg = this.getRoomDecryptor(key.room_id, key.algorithm);
+            const ratchetAlg = this.getRoomDecryptor(key.room_id, olmlib.MEGOLM_RATCHET_ALGORITHM);
+            ratchetAlg.importRoomKey(key, opts)
+
+            const alg = this.getRoomDecryptor(key.room_id, olmlib.MEGOLM_ALGORITHM);
             return alg.importRoomKey(key, opts).finally(() => {
                 successes++;
                 if (opts.progressCallback) { updateProgress(); }
