@@ -814,7 +814,7 @@ export class SyncApi {
 
         let data;
         try {
-            //debuglog('Starting sync since=' + syncToken);
+            debuglog('Starting sync since=' + syncToken);
             if (this.currentSyncRequest === null) {
                 this.currentSyncRequest = this.doSyncRequest(syncOptions, syncToken);
             }
@@ -826,7 +826,7 @@ export class SyncApi {
             this.currentSyncRequest = null;
         }
 
-        //debuglog('Completed sync, next_batch=' + data.next_batch);
+        debuglog(`Completed sync since=${syncToken}, next_batch=${data.next_batch}`);
 
         // set the sync token NOW *before* processing the events. We do this so
         // if something barfs on an event we can skip it rather than constantly
@@ -1128,6 +1128,7 @@ export class SyncApi {
         if (data.to_device && Array.isArray(data.to_device.events) &&
             data.to_device.events.length > 0
         ) {
+            debuglog(`synced to_device ${data.to_device.events.length} events from token ${syncEventData.oldSyncToken}`)
             const cancelledKeyVerificationTxns = [];
             data.to_device.events
                 .map(client.getEventMapper())
@@ -1150,6 +1151,8 @@ export class SyncApi {
                 })
                 .forEach(
                     function(toDeviceEvent) {
+                        debuglog(`synced to_device ${toDeviceEvent.getType()} from: ` +
+                        `${toDeviceEvent.getSender()} id: ${toDeviceEvent.getId()} trace_id: ${toDeviceEvent.getWireContent()['trace_id']}`);
                         const content = toDeviceEvent.getContent();
                         if (
                             toDeviceEvent.getType() == "m.room.message" &&
@@ -1175,6 +1178,7 @@ export class SyncApi {
                     },
                 );
         } else {
+            debuglog(`synced to_device 0 events from token ${syncEventData.oldSyncToken}`)
             // no more to-device events: we can stop polling with a short timeout.
             this.catchingUp = false;
         }

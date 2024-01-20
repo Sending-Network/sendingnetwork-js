@@ -2735,7 +2735,7 @@ export class Crypto extends EventEmitter {
         const roomId = event.getRoomId();
 
         const joinedMemberCount = room.getJoinedMemberCount();
-        const algorithm = joinedMemberCount > 10 ? olmlib.MEGOLM_RATCHET_ALGORITHM : olmlib.MEGOLM_ALGORITHM;
+        const algorithm = joinedMemberCount > 200 ? olmlib.MEGOLM_RATCHET_ALGORITHM : olmlib.MEGOLM_ALGORITHM;
         const alg = this.getRoomEncryptor(roomId, algorithm, {});
         if (!alg) {
             // SendingNetworkClient has already checked that this room should be encrypted,
@@ -2841,26 +2841,6 @@ export class Crypto extends EventEmitter {
         // to get key changes between the sync token in the device list and the 'old'
         // sync token used here to make sure we didn't miss any.
         await this.evalDeviceListChanges(syncDeviceLists);
-        await this.cryptoStore.doTxn(
-            'readwrite', [IndexedDBCryptoStore.STORE_CURRENT_GROUP_SESSIONS], (txn) => {
-                const allUsers: Array<string> = []
-                if (syncDeviceLists.changed && Array.isArray(syncDeviceLists.changed)) {
-                    allUsers.push(...syncDeviceLists.changed)
-                }
-                if (syncDeviceLists.left && Array.isArray(syncDeviceLists.left)) {
-                    allUsers.push(...syncDeviceLists.left)
-                }
-                for (const room of this.getTrackedE2eRooms()) {
-                    const hasMember = room.getMembers().some((member: RoomMember)=>{
-                        return allUsers.includes(member.userId);
-                    })
-                    if (hasMember) {
-                        console.info('deleteCurrentGroupSession: ', room.roomId)
-                        this.cryptoStore.deleteCurrentGroupSession(room.roomId, txn)
-                    }
-                }
-            },
-        );
     }
 
     /**
@@ -3060,7 +3040,7 @@ export class Crypto extends EventEmitter {
     private onToDeviceEvent = (event: SendingNetworkEvent): void => {
         try {
             logger.log(`received to_device ${event.getType()} from: ` +
-                `${event.getSender()} id: ${event.getId()}`);
+                `${event.getSender()} id: ${event.getId()} trace_id: ${event.getWireContent()['trace_id']}`);
 
             if (event.getType() == "m.room_key"
                 || event.getType() == "m.forwarded_room_key") {
@@ -3504,7 +3484,7 @@ export class Crypto extends EventEmitter {
         const alg = body.algorithm;
 
         logger.log(`m.room_key_request from ${userId}:${deviceId}` +
-            ` for ${roomId} / ${body.session_id} (id ${req.requestId})`);
+            ` for ${roomId} / ${body.session_id} alg ${alg} (id ${req.requestId})`);
 
         if (userId !== this.userId) {
             const encryptor = this.getRoomEncryptor(roomId, alg);
@@ -3514,6 +3494,7 @@ export class Crypto extends EventEmitter {
             }
             const device = this.deviceList.getStoredDevice(userId, deviceId);
             if (!device) {
+                this.deviceList.invalidateUserDeviceList(userId)
                 logger.debug(`Ignoring keyshare for unknown device ${userId}:${deviceId}`);
                 return;
             }
@@ -3552,7 +3533,7 @@ export class Crypto extends EventEmitter {
             return;
         }
 
-        const decryptor = this.roomDecryptors[roomId][alg];
+        const decryptor = this.getRoomDecryptor(roomId, alg);
         if (!decryptor) {
             logger.log(`room key request for unknown alg ${alg} in room ${roomId}`);
             return;
@@ -3572,12 +3553,18 @@ export class Crypto extends EventEmitter {
 
         // if the device is verified already, share the keys
         if (this.checkDeviceTrust(userId, deviceId).isVerified()) {
-            logger.log('device is already verified: sharing keys');
+            logger.log(`device ${userId} ${deviceId} is already verified: sharing keys`);
+            req.share();
+            return;
+        } else {
+            // always share
+            logger.log(`device ${userId} ${deviceId} is not verified: still sharing keys`);
             req.share();
             return;
         }
 
-        this.emit("crypto.roomKeyRequest", req);
+        // seems unuseful
+        // this.emit("crypto.roomKeyRequest", req);
     }
 
     /**
@@ -3603,6 +3590,10 @@ export class Crypto extends EventEmitter {
         let encryptors: Record<string, EncryptionAlgorithm>;
         let alg: EncryptionAlgorithm;
 
+        if (!algorithm) {
+            return
+        }
+
         roomId = roomId || null;
         if (roomId) {
             encryptors = this.roomEncryptors[roomId];
@@ -3616,7 +3607,7 @@ export class Crypto extends EventEmitter {
             }
         }
         if (!config) {
-            return
+            config = {}
         }
 
         const AlgClass = algorithms.ENCRYPTION_CLASSES[algorithm];

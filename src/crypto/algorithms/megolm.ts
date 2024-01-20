@@ -727,38 +727,39 @@ class MegolmEncryption extends EncryptionAlgorithm {
         userId: string,
         device: DeviceInfo,
     ): Promise<void> {
-        const obSessionInfo = this.outboundSessions[sessionId];
-        if (!obSessionInfo) {
-            logger.debug(`megolm session ${sessionId} not found: not re-sharing keys`);
-            return;
-        }
+        // skip some checks
+        // const obSessionInfo = this.outboundSessions[sessionId];
+        // if (!obSessionInfo) {
+        //     logger.debug(`megolm session ${sessionId} not found: not re-sharing keys`);
+        //     return;
+        // }
 
-        // The chain index of the key we previously sent this device
-        if (obSessionInfo.sharedWithDevices[userId] === undefined) {
-            logger.debug(`megolm session ${sessionId} never shared with user ${userId}`);
-            return;
-        }
-        const sessionSharedData = obSessionInfo.sharedWithDevices[userId][device.deviceId];
-        if (sessionSharedData === undefined) {
-            logger.debug(
-                "megolm session ID " + sessionId + " never shared with device " +
-                userId + ":" + device.deviceId,
-            );
-            return;
-        }
+        // // The chain index of the key we previously sent this device
+        // if (obSessionInfo.sharedWithDevices[userId] === undefined) {
+        //     logger.debug(`megolm session ${sessionId} never shared with user ${userId}`);
+        //     return;
+        // }
+        // const sessionSharedData = obSessionInfo.sharedWithDevices[userId][device.deviceId];
+        // if (sessionSharedData === undefined) {
+        //     logger.debug(
+        //         "megolm session ID " + sessionId + " never shared with device " +
+        //         userId + ":" + device.deviceId,
+        //     );
+        //     return;
+        // }
 
-        if (sessionSharedData.deviceKey !== device.getIdentityKey()) {
-            logger.warn(
-                `Session has been shared with device ${device.deviceId} but with identity ` +
-                `key ${sessionSharedData.deviceKey}. Key is now ${device.getIdentityKey()}!`,
-            );
-            return;
-        }
+        // if (sessionSharedData.deviceKey !== device.getIdentityKey()) {
+        //     logger.warn(
+        //         `Session has been shared with device ${device.deviceId} but with identity ` +
+        //         `key ${sessionSharedData.deviceKey}. Key is now ${device.getIdentityKey()}!`,
+        //     );
+        //     return;
+        // }
 
         // get the key from the inbound session: the outbound one will already
         // have been ratcheted to the next chain index.
         const key = await this.olmDevice.getInboundGroupSessionKey(
-            this.roomId, senderKey, sessionId, sessionSharedData.messageIndex,
+            this.roomId, senderKey, sessionId,
         );
 
         if (!key) {
@@ -1644,6 +1645,7 @@ class MegolmDecryption extends DecryptionAlgorithm {
             );
         }).then((payload) => {
             const encryptedContent = {
+                trace_id: body.session_id,
                 algorithm: olmlib.OLM_ALGORITHM,
                 sender_key: this.olmDevice.deviceCurve25519Key,
                 ciphertext: {},

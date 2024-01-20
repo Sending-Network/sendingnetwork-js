@@ -1614,6 +1614,7 @@ class MegolmRatchetDecryption extends DecryptionAlgorithm {
             );
         }).then((payload) => {
             const encryptedContent = {
+                trace_id: body.session_id,
                 algorithm: olmlib.OLM_ALGORITHM,
                 sender_key: this.olmDevice.deviceCurve25519Key,
                 ciphertext: {},

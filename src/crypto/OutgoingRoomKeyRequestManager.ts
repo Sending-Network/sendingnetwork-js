@@ -171,6 +171,12 @@ export class OutgoingRoomKeyRequestManager {
                     // a request has already been sent.  If we don't want to
                     // resend, then do nothing.  If we do want to, then cancel the
                     // existing request and send a new one.
+
+                    // force resend if we have new recipients
+                    if (this.mergeRecipients(req.recipients, recipients)) {
+                        logger.log(`force queue request of ${requestBody.session_id} to recipients: ${recipients}`)
+                        resend = true
+                    }
                     if (resend) {
                         const state =
                               RoomKeyRequestState.CancellationPendingAndWillResend;
@@ -182,6 +188,7 @@ export class OutgoingRoomKeyRequestManager {
                                       // need to use a new transaction ID so that
                                       // the request gets sent
                                       requestTxnId: this.baseApis.makeTxnId(),
+                                      recipients: recipients,
                                   },
                               );
                         if (!updatedReq) {
@@ -225,6 +232,17 @@ export class OutgoingRoomKeyRequestManager {
                     throw new Error('unhandled state: ' + req.state);
             }
         }
+    }
+
+    private mergeRecipients(oldRecipients: IRoomKeyRequestRecipient[], newRecipients: IRoomKeyRequestRecipient[]): Boolean {
+        let changed = false
+        oldRecipients.forEach((recipient) => {
+            if (!newRecipients.some(e => e.userId == recipient.userId)) {
+                newRecipients.push(recipient)
+                changed = true
+            }
+        })
+        return changed
     }
 
     /**
