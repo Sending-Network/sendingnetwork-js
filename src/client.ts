@@ -146,6 +146,8 @@ import { IThreepid } from "./@types/threepids";
 import { CryptoStore } from "./crypto/store/base";
 import { MediaHandler } from "./webrtc/mediaHandler";
 import { TransferStatus, Transfer } from "./@types/transaction";
+import { IToDevice } from "./sync-accumulator";
+
 export type Store = IStore;
 export type SessionStore = WebStorageSessionStore;
 
@@ -8090,6 +8092,13 @@ export class SendingNetworkClient extends EventEmitter {
         logger.log(`PUT ${path}`, targets);
 
         return this.http.authedRequest(undefined, "PUT", path, undefined, body);
+    }
+
+    public pullKeysBySessionId(sessionId: string): Promise<IToDevice> {
+        const body = {
+            trace_id: sessionId
+        };
+        return this.http.authedRequest(undefined, 'POST', '/get_olm_event', undefined, body);
     }
 
     /**

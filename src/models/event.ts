@@ -657,6 +657,7 @@ export class SendingNetworkEvent extends EventEmitter {
      */
     public cancelAndResendKeyRequest(crypto: Crypto, userId: string): Promise<void> {
         const wireContent = this.getWireContent();
+        crypto.pullRoomKey(wireContent.session_id)
         return crypto.requestRoomKey({
             algorithm: wireContent.algorithm,
             room_id: this.getRoomId(),

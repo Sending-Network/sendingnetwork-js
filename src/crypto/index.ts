@@ -2872,6 +2872,36 @@ export class Crypto extends EventEmitter {
         });
     }
 
+    public pullRoomKey(sessionId: string): Promise<void> {
+        console.info(`try pulling keys for ${sessionId}`)
+        return this.baseApis.pullKeysBySessionId(sessionId).then((value) => {
+            const eventsCount = value.events.length
+            console.info(`pulled ${eventsCount} events by ${sessionId}: ${JSON.stringify(value)}`)
+
+            if (eventsCount == 0) {
+                throw new Error(`no session events by ${sessionId}`)
+            }
+
+            value.events.map(this.baseApis.getEventMapper()).forEach((toDeviceEvent) => {
+
+                console.log(`pulled to_device ${toDeviceEvent.getType()} from: ` +
+                `${toDeviceEvent.getSender()} id: ${toDeviceEvent.getId()} trace_id: ${toDeviceEvent.getWireContent()['trace_id']}`)
+
+                toDeviceEvent.once('Event.decrypted', (ev) => {
+                    if (ev.clearEvent && !ev.isDecryptionFailure()) {
+                        console.info(`decrypted pull key event ${ev.getWireContent()['trace_id']}`)
+                        this.onRoomKeyEvent(ev);
+                    } else {
+                        console.info(`failed decrypting pull key event ${ev.getWireContent()['trace_id']}`)
+                    }
+                });
+                toDeviceEvent.attemptDecryption(this);
+            })
+        }).catch((err) => {
+            console.warn(`process pull to_device events error ${err}`)
+        })
+    }
+
     /**
      * Cancel any earlier room key request
      *

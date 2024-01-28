@@ -1340,6 +1340,8 @@ class MegolmRatchetDecryption extends DecryptionAlgorithm {
             sender_key: wireContent.sender_key,
             session_id: wireContent.session_id,
         }, recipients);
+
+        this.crypto.pullRoomKey(wireContent.session_id)
     }
 
     /**
