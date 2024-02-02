@@ -259,6 +259,7 @@ export class OutgoingRoomKeyRequestManager {
         ).then((req): unknown => {
             if (!req) {
                 // no request was made for this key
+                logger.warn(`no request was made for this key: ${requestBody.session_id}`)
                 return;
             }
             switch (req.state) {

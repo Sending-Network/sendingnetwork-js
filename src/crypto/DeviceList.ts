@@ -974,7 +974,9 @@ async function storeDeviceKeys(
             // Should we warn the user about it somehow?
             logger.warn("Ed25519 key for device " + userId + ":" +
                deviceId + " has changed");
-            return false;
+
+            // accept the new keys
+            // return false;
         }
     } else {
         userStore[deviceId] = deviceStore = new DeviceInfo(deviceId);

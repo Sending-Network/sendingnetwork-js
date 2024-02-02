@@ -2872,33 +2872,51 @@ export class Crypto extends EventEmitter {
         });
     }
 
-    public pullRoomKey(sessionId: string): Promise<void> {
-        console.info(`try pulling keys for ${sessionId}`)
-        return this.baseApis.pullKeysBySessionId(sessionId).then((value) => {
-            const eventsCount = value.events.length
-            console.info(`pulled ${eventsCount} events by ${sessionId}: ${JSON.stringify(value)}`)
+    public pullRoomKey(roomId: string, sender_key: string, sessionId: string, event: SendingNetworkEvent): Promise<void> {
 
-            if (eventsCount == 0) {
-                throw new Error(`no session events by ${sessionId}`)
+        return this.olmDevice.hasInboundSessionKeys(
+            roomId,
+            sender_key,
+            sessionId
+        ).then((value: boolean) => {
+            if (value) {
+                // already have the key
+                logger.info(`skip pulling keys for ${sessionId}`)
+                return
             }
+            logger.info(`try pulling keys for ${sessionId}`)
+            return this.baseApis.pullKeysBySessionId(sessionId).then((value) => {
+                const eventsCount = value.events.length
+                logger.info(`pulled ${eventsCount} events by ${sessionId}: ${JSON.stringify(value)}`)
 
-            value.events.map(this.baseApis.getEventMapper()).forEach((toDeviceEvent) => {
+                if (eventsCount == 0) {
+                    throw new Error(`no session events by ${sessionId}`)
+                }
 
-                console.log(`pulled to_device ${toDeviceEvent.getType()} from: ` +
-                `${toDeviceEvent.getSender()} id: ${toDeviceEvent.getId()} trace_id: ${toDeviceEvent.getWireContent()['trace_id']}`)
+                value.events.map(this.baseApis.getEventMapper()).forEach((toDeviceEvent) => {
 
-                toDeviceEvent.once('Event.decrypted', (ev) => {
-                    if (ev.clearEvent && !ev.isDecryptionFailure()) {
-                        console.info(`decrypted pull key event ${ev.getWireContent()['trace_id']}`)
-                        this.onRoomKeyEvent(ev);
-                    } else {
-                        console.info(`failed decrypting pull key event ${ev.getWireContent()['trace_id']}`)
-                    }
-                });
-                toDeviceEvent.attemptDecryption(this);
+                    logger.log(`pulled to_device ${toDeviceEvent.getType()} from: ` +
+                    `${toDeviceEvent.getSender()} id: ${toDeviceEvent.getId()} trace_id: ${toDeviceEvent.getWireContent()['trace_id']}`)
+
+                    toDeviceEvent.once('Event.decrypted', (ev) => {
+                        if (ev.clearEvent && !ev.isDecryptionFailure()) {
+                            logger.info(`decrypted pull key event ${ev.getWireContent()['trace_id']}`)
+                            this.onRoomKeyEvent(ev);
+                            // retry decryption after 2 seconds
+                            setTimeout(() => {
+                                event.attemptDecryption(this, {isRetry: true}).catch(e => {
+                                    logger.warn(`retry decrypt event ${event.getId()} fail after pulling key ${sessionId}: ${e}`)
+                                })
+                            }, 2000)
+                        } else {
+                            logger.info(`failed decrypting pull key event ${ev.getWireContent()['trace_id']}`)
+                        }
+                    });
+                    toDeviceEvent.attemptDecryption(this);
+                })
+            }).catch((err) => {
+                logger.warn(`process pull to_device events error ${err}`)
             })
-        }).catch((err) => {
-            console.warn(`process pull to_device events error ${err}`)
         })
     }
 
