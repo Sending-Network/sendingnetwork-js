@@ -146,6 +146,8 @@ import { IThreepid } from "./@types/threepids";
 import { CryptoStore } from "./crypto/store/base";
 import { MediaHandler } from "./webrtc/mediaHandler";
 import { TransferStatus, Transfer } from "./@types/transaction";
+import { IToDevice } from "./sync-accumulator";
+
 export type Store = IStore;
 export type SessionStore = WebStorageSessionStore;
 
@@ -1281,7 +1283,9 @@ export class SendingNetworkClient extends EventEmitter {
      *
      * @returns {Promise} Promise which resolves when the stores have been cleared.
      */
-    public clearStores(): Promise<void> {
+    public clearStores(opts? :{
+        deleteCrypto?: boolean;
+    }): Promise<void> {
         if (this.clientRunning) {
             throw new Error("Cannot clear stores while client is running");
         }
@@ -1289,7 +1293,7 @@ export class SendingNetworkClient extends EventEmitter {
         const promises = [];
 
         promises.push(this.store.deleteAllData());
-        if (this.cryptoStore) {
+        if (this.cryptoStore && opts?.deleteCrypto) {
             promises.push(this.cryptoStore.deleteAllData());
         }
         return Promise.all(promises).then(); // .then to fix types
@@ -2034,11 +2038,11 @@ export class SendingNetworkClient extends EventEmitter {
      * send, in order to speed up sending of the message.
      * @param {module:models/room} room the room the event is in
      */
-    public prepareToEncrypt(room: Room) {
+    public prepareToEncrypt(room: Room, algorithm: string) {
         if (!this.crypto) {
             throw new Error("End-to-end encryption disabled");
         }
-        return this.crypto.prepareToEncrypt(room);
+        return this.crypto.prepareToEncrypt(room, algorithm);
     }
 
     /**
@@ -8090,6 +8094,13 @@ export class SendingNetworkClient extends EventEmitter {
         return this.http.authedRequest(undefined, "PUT", path, undefined, body);
     }
 
+    public pullKeysBySessionId(sessionId: string): Promise<IToDevice> {
+        const body = {
+            trace_id: sessionId
+        };
+        return this.http.authedRequest(undefined, 'POST', '/get_olm_event', undefined, body);
+    }
+
     /**
      * Get the third party protocols that can be reached using
      * this HS
@@ -9143,6 +9154,7 @@ export class SendingNetworkClient extends EventEmitter {
         return this.http.authedRequest(
             (error, response) => {
                 if (response && response.access_token && response.user_id) {
+                    this.deviceId = response.device_id;
                     this.http.opts.accessToken = response.access_token;
                     this.credentials = {
                         userId: response.user_id,

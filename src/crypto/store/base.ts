@@ -113,6 +113,23 @@ export interface CryptoStore {
         txn: unknown,
     ): void;
 
+    // current session
+    getCurrentGroupSession(
+        roomId: string,
+        txn: unknown,
+        func: (senderKey: string, sessionId: string, groupSession: InboundGroupSessionData) => void,
+    ): void
+    storeCurrentGroupSession(
+        senderCurve25519Key: string,
+        sessionId: string,
+        sessionData: InboundGroupSessionData,
+        txn: unknown,
+    ): void
+    deleteCurrentGroupSession(
+        roomId: string,
+        txn: unknown,
+    ): void
+
     // Device Data
     getEndToEndDeviceData(txn: unknown, func: (deviceData: IDeviceData | null) => void): void;
     storeEndToEndDeviceData(deviceData: IDeviceData, txn: unknown): void;

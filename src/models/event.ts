@@ -79,6 +79,7 @@ export interface IContent {
     signature?: string;
     "m.relates_to"?: IEventRelation;
     msgtag?: MsgTag;
+    algorithm?: string;
 }
 
 export enum MsgTag {
@@ -656,6 +657,7 @@ export class SendingNetworkEvent extends EventEmitter {
      */
     public cancelAndResendKeyRequest(crypto: Crypto, userId: string): Promise<void> {
         const wireContent = this.getWireContent();
+        crypto.pullRoomKey(this.getRoomId(), wireContent.sender_key, wireContent.session_id, this)
         return crypto.requestRoomKey({
             algorithm: wireContent.algorithm,
             room_id: this.getRoomId(),
@@ -681,7 +683,7 @@ export class SendingNetworkEvent extends EventEmitter {
         const sender = this.getSender();
         if (sender !== userId) {
             recipients.push({
-                userId: sender, deviceId: wireContent.device_id,
+                userId: sender, deviceId: wireContent.device_id || '*',
             });
         }
         return recipients;

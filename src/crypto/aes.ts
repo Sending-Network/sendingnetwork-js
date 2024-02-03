@@ -275,3 +275,51 @@ const ZERO_STR = "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0
 export function calculateKeyCheck(key: Uint8Array, iv?: string): Promise<IEncryptedPayload> {
     return encryptAES(ZERO_STR, key, "", iv);
 }
+
+export async function encryptCBC(key: Uint8Array, data: string) : Promise<string> {
+    const iv = key.subarray(0, 16)
+    const dataBytes = new TextEncoder().encode(data)
+
+    const aesKey = await window.crypto.subtle.importKey(
+        'raw',
+        key,
+        { name: 'AES-CBC' },
+        false,
+        ['encrypt']
+      );
+
+    const cipherBytes = await window.crypto.subtle.encrypt(
+        {
+            name: "AES-CBC",
+            iv: iv,
+        },
+        aesKey,
+        dataBytes,
+    );
+
+    return encodeBase64(cipherBytes)
+}
+
+export async function decryptCBC(key: Uint8Array, cipherText: string) : Promise<string> {
+    const iv = key.subarray(0, 16)
+    const cipherBytes = decodeBase64(cipherText)
+
+    const aesKey = await window.crypto.subtle.importKey(
+        'raw',
+        key,
+        { name: 'AES-CBC' },
+        false,
+        ['decrypt']
+      );
+
+      const plaintextBytes = await window.crypto.subtle.decrypt(
+        {
+            name: "AES-CBC",
+            iv: iv,
+        },
+        aesKey,
+        cipherBytes,
+    );
+
+    return new TextDecoder().decode(plaintextBytes)
+}
