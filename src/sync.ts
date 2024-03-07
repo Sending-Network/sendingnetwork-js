@@ -819,6 +819,7 @@ export class SyncApi {
                 this.currentSyncRequest = this.doSyncRequest(syncOptions, syncToken);
             }
             data = await this.currentSyncRequest;
+            console.time('🎈fetching backend data🚀🚀');
         } catch (e) {
             this.onSyncError(e, syncOptions);
             return;
@@ -849,9 +850,9 @@ export class SyncApi {
             // response
             await this.opts.crypto.onSyncWillProcess(syncEventData);
         }
-
         try {
             await this.processSyncResponse(syncEventData, data);
+            console.timeEnd('🎈fetching backend data🚀🚀');
         } catch (e) {
             // log the exception with stack if we have it, else fall back
             // to the plain description
@@ -1232,6 +1233,7 @@ export class SyncApi {
         });
 
         // Handle joins
+        console.time('🎈From Ding 🚀🚀🚀🚀🚀🚀🚀🚀🚀');
         await utils.promiseMapSeries(joinRooms, async (joinObj) => {
             const room = joinObj.room;
             const stateEvents = this.mapSyncEventsFormat(joinObj.state, room);
@@ -1368,10 +1370,12 @@ export class SyncApi {
                     }
                 }
             };
-
-            await utils.promiseMapSeries(stateEvents, processRoomEvent);
-            await utils.promiseMapSeries(timelineEvents, processRoomEvent);
-            await utils.promiseMapSeries(threadedEvents, processRoomEvent);
+            
+            await Promise.all([
+                utils.promiseMapSeries(stateEvents, processRoomEvent),
+                utils.promiseMapSeries(timelineEvents, processRoomEvent),
+                utils.promiseMapSeries(threadedEvents, processRoomEvent)
+            ])
             ephemeralEvents.forEach(function(e) {
                 client.emit("event", e);
             });
@@ -1386,6 +1390,7 @@ export class SyncApi {
             // notification count
             room.decryptCriticalEvents();
         });
+        console.timeEnd('🎈From Ding 🚀🚀🚀🚀🚀🚀🚀🚀🚀');
 
         // Handle leaves (e.g. kicked rooms)
         leaveRooms.forEach((leaveObj) => {
