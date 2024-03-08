@@ -676,7 +676,7 @@ export class SyncApi {
                 // Send this first sync request here so we can then wait for the saved
                 // sync data to finish processing before we process the results of this one.
                 debuglog("Sending first sync request...");
-                this.currentSyncRequest = this.doSyncRequest({ filterId }, savedSyncToken);
+                this.currentSyncRequest = this.doSyncRequest({ filterId, multiStep: true }, savedSyncToken);
             }
 
             // Now wait for the saved sync to finish...
@@ -939,7 +939,7 @@ export class SyncApi {
         };
 
         if (this.opts.disablePresence) {
-            qps.set_presence = "offline";
+            qps.set_presence = 'offline';
         }
 
         if (syncToken) {
@@ -958,9 +958,11 @@ export class SyncApi {
             // for an event or a timeout before emiting the SYNCING event.
             qps.timeout = 0;
         }
-        if (qps.timeout === 0) { // use multi-step for initial sync
-            qps.multi_step = true;
+
+        if(syncOptions.multiStep){
+            qps.multi_step = syncOptions.multiStep;
         }
+
         return qps;
     }
 
