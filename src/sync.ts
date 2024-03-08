@@ -84,6 +84,7 @@ function debuglog(...params) {
 interface ISyncOptions {
     filterId?: string;
     hasSyncedBefore?: boolean;
+    multiStep?: boolean;
 }
 
 export interface ISyncStateData {
@@ -1023,7 +1024,10 @@ export class SyncApi {
      * @param {Object} syncEventData Object containing sync tokens associated with this sync
      * @param {Object} data The response from /sync
      */
-    private async processSyncResponse(syncEventData: ISyncStateData, data: ISyncResponse): Promise<void> {
+    private async processSyncResponse(
+        syncEventData: ISyncStateData,
+        data: ISyncResponse
+    ): Promise<void> {
         const client = this.client;
 
         // data looks like:
@@ -1124,6 +1128,14 @@ export class SyncApi {
                 },
             );
         }
+
+        // handle non-room friends_request
+        // if (data.friend_request) {
+        //     client.emit("friendRequest", data.friend_request);
+        // }
+        // if (data.friend) {
+        //     client.emit("friend", data.friend);
+        // }
 
         // handle to-device events
         if (data.to_device && Array.isArray(data.to_device.events) &&
@@ -1233,7 +1245,6 @@ export class SyncApi {
         });
 
         // Handle joins
-        console.time('🎈From Ding 🚀🚀🚀🚀🚀🚀🚀🚀🚀');
         await utils.promiseMapSeries(joinRooms, async (joinObj) => {
             const room = joinObj.room;
             const stateEvents = this.mapSyncEventsFormat(joinObj.state, room);
@@ -1325,6 +1336,8 @@ export class SyncApi {
                     client.resetNotifTimelineSet();
 
                     this.registerStateListeners(room);
+                } else {
+                    // await this.processLocalEvents(room)
                 }
             }
 
@@ -1390,10 +1403,9 @@ export class SyncApi {
             // notification count
             room.decryptCriticalEvents();
         });
-        console.timeEnd('🎈From Ding 🚀🚀🚀🚀🚀🚀🚀🚀🚀');
 
         // Handle leaves (e.g. kicked rooms)
-        leaveRooms.forEach((leaveObj) => {
+        leaveRooms.forEach(leaveObj => {
             const room = leaveObj.room;
             const stateEvents = this.mapSyncEventsFormat(leaveObj.state, room);
             const events = this.mapSyncEventsFormat(leaveObj.timeline, room);
