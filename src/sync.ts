@@ -144,6 +144,10 @@ export class SyncApi {
     private notifEvents: SendingNetworkEvent[] = []; // accumulator of sync events in the current sync response
     private failedSyncCount = 0; // Number of consecutive failed /sync requests
     private storeIsInvalid = false; // flag set if the store needs to be cleared before we can start
+    private delateEvent = {
+        processRoomEvents: [],
+        processThreadEvents: []
+    }
 
     constructor(private readonly client: SendingNetworkClient, private readonly opts: Partial<IStoredClientOpts> = {}) {
         this.opts.initialSyncLimit = this.opts.initialSyncLimit ?? 8;
@@ -162,6 +166,24 @@ export class SyncApi {
             client.reEmitter.reEmit(client.getNotifTimelineSet(),
                 ["Room.timeline", "Room.timelineReset"]);
         }
+    }
+
+    private inQueueEvent = (type: 'processRoomEvents' | 'processThreadEvent', params: any[]) => {
+        this.delateEvent[type].push(params);
+    }
+
+    private flushDelayEvents = () => {
+        // const that = this
+        // setTimeout(() => {
+        //     while (that.delateEvent.processRoomEvents.length) {
+        //         const params = that.delateEvent.processRoomEvents.shift();
+        //         that.processRoomEvents.apply(that, params);
+        //     }
+        //     while (that.delateEvent.processThreadEvents.length) {
+        //         const params = that.delateEvent.processThreadEvents.shift();
+        //         that.processThreadEvents.apply(that, params);
+        //     }
+        // })
     }
 
     /**
@@ -1483,6 +1505,7 @@ export class SyncApi {
                 !unusedFallbackKeys.includes("signed_curve25519"),
             );
         }
+        // this.flushDelayEvents()
     }
 
     /**
@@ -1763,6 +1786,18 @@ export class SyncApi {
         timelineEventList?: SendingNetworkEvent[],
         fromCache = false,
     ): void {
+        let count = 0
+        const stateEventList_copy = stateEventList.filter(item => {
+            let type = item.getType()
+            if (count < 10) {
+                if (type === EventType.RoomMember) {
+                    count++
+                }
+                return true
+            } else {
+                return type !== EventType.RoomMember
+            }
+        })
         // If there are no events in the timeline yet, initialise it with
         // the given state events
         const liveTimeline = room.getLiveTimeline();
@@ -1776,7 +1811,7 @@ export class SyncApi {
             // push actions cache elsewhere so we can freeze SendingNetworkEvents, or otherwise
             // find some solution where SendingNetworkEvents are immutable but allow for a cache
             // field.
-            for (const ev of stateEventList) {
+            for (const ev of stateEventList_copy) {
                 this.client.getPushActionsForEvent(ev);
             }
             liveTimeline.initialiseState(stateEventList);
@@ -1805,6 +1840,7 @@ export class SyncApi {
         // very wrong because there could be events in the timeline that diverge the
         // state, in which case this is going to leave things out of sync. However,
         // for now I think it;s best to behave the same as the code has done previously.
+
         if (!timelineWasEmpty) {
             // XXX: As above, don't do this...
             //room.addLiveEvents(stateEventList || []);
@@ -1817,6 +1853,7 @@ export class SyncApi {
         // This also needs to be done before running push rules on the events as they need
         // to be decorated with sender etc.
         room.addLiveEvents(timelineEventList || [], null, fromCache);
+        // this.client.emit("updatePage")
     }
 
     /**
