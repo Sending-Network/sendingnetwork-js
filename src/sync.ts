@@ -819,6 +819,7 @@ export class SyncApi {
                 this.currentSyncRequest = this.doSyncRequest(syncOptions, syncToken);
             }
             data = await this.currentSyncRequest;
+            console.time('🎈Process group message🚀');
         } catch (e) {
             this.onSyncError(e, syncOptions);
             return;
@@ -852,6 +853,7 @@ export class SyncApi {
 
         try {
             await this.processSyncResponse(syncEventData, data);
+            console.timeEnd('🎈Process group message🚀');
         } catch (e) {
             // log the exception with stack if we have it, else fall back
             // to the plain description
@@ -1372,10 +1374,15 @@ export class SyncApi {
                     }
                 }
             };
-
             await utils.promiseMapSeries(stateEvents, processRoomEvent);
             await utils.promiseMapSeries(timelineEvents, processRoomEvent);
             await utils.promiseMapSeries(threadedEvents, processRoomEvent);
+            
+            // await Promise.all([
+            //     utils.promiseMapSeries(stateEvents, processRoomEvent),
+            //     utils.promiseMapSeries(threadedEvents, processRoomEvent),
+            //     utils.promiseMapSeries(timelineEvents, processRoomEvent)
+            // ])
             ephemeralEvents.forEach(function(e) {
                 client.emit("event", e);
             });

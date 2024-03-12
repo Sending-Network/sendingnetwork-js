@@ -481,13 +481,29 @@ export function defer<T = void>(): IDeferred<T> {
     return { resolve, reject, promise };
 }
 
+export async function promiseLimitAll<T>(promises: T[]): Promise<any[]> {
+    const resArr = []
+    const size = 10
+    for (let i = 0; i < promises.length; i += size) {
+        const batchPromises = promises.slice(i, i + size);
+        const results = await Promise.all(batchPromises);
+        for (let i = 0; i < results.length; i++) {
+            resArr.push(results[i])
+        }
+    }
+    return resArr
+}
+
 export async function promiseMapSeries<T>(
     promises: T[],
     fn: (t: T) => void,
 ): Promise<void> {
-    for (const o of promises) {
-        await fn(await o);
+    const results = await promiseLimitAll(promises);
+    const eventPool = []
+    for (const o of results) {
+        eventPool.push(fn(o))
     }
+    await promiseLimitAll(eventPool)
 }
 
 export function promiseTry<T>(fn: () => T | Promise<T>): Promise<T> {
