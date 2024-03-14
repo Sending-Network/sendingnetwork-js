@@ -756,7 +756,19 @@ export class SendingNetworkEvent extends EventEmitter {
                     `Error decrypting event (id=${this.getId()}): ${e.detailedString}`,
                 );
 
-                res = this.badEncryptedMessage(e.message);
+                if (this.getTs() < crypto.getThreshholdTime()) {
+                    res = {
+                        clearEvent: {
+                            type: "m.room.message",
+                            content: {
+                                msgtype: "m.bad.encrypted",
+                                body: "** Please restore e2e room key to decrypt this message **",
+                            },
+                        },
+                    }
+                } else {
+                    res = this.badEncryptedMessage(e.message);
+                }
             }
 
             // at this point, we've either successfully decrypted the event, or have given up

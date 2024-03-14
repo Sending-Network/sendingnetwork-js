@@ -8101,6 +8101,15 @@ export class SendingNetworkClient extends EventEmitter {
         return this.http.authedRequest(undefined, 'POST', '/get_olm_event', undefined, body);
     }
 
+    public getSessionShareMap(roomId: string, sessionId: string): Promise<Record<string, Record<string, any>>> {
+        const path = utils.encodeUri('/rooms/$roomId/session/$sessionId', {
+            $roomId: roomId,
+            $sessionId: sessionId
+        });
+
+        return this.http.authedRequest(undefined, 'GET', path, undefined, undefined);
+    }
+
     /**
      * Get the third party protocols that can be reached using
      * this HS

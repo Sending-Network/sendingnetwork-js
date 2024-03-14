@@ -33,7 +33,7 @@ import { IRoomEncryption } from "../RoomList";
 import { InboundGroupSessionData } from "../OlmDevice";
 import { IEncryptedPayload } from "../aes";
 
-export const VERSION = 11;
+export const VERSION = 12;
 const PROFILE_TRANSACTIONS = false;
 
 /**
@@ -923,6 +923,37 @@ export class Backend implements CryptoStore {
         });
     }
 
+    public storeSessionSharedDevices(
+        sessionId: string,
+        sharedWithDevices: Record<string, Record<string, any>>,
+        txn: IDBTransaction
+    ): void {
+        const objectStore = txn.objectStore('session_shared_devices');
+        const putReq = objectStore.put(sharedWithDevices, sessionId);
+        putReq.onerror = function (event) {
+            console.log('put session_shared_devices error', event);
+        };
+    }
+
+    public getSessionSharedInfo(
+        sessionId: string,
+        txn: IDBTransaction,
+        func: (sharedWithDevices: Record<string, Record<string, any>>) => void
+    ): void {
+        const objectStore = txn.objectStore('session_shared_devices');
+        const getReq = objectStore.get(sessionId);
+        getReq.onsuccess = function () {
+            try {
+                func(getReq.result);
+            } catch (e) {
+                abortWithException(txn, e);
+            }
+        };
+        getReq.onerror = function () {
+            console.log('get session_shared_devices error');
+        };
+    }
+
     public doTxn<T>(
         mode: Mode,
         stores: Iterable<string>,
@@ -1012,6 +1043,9 @@ export function upgradeDatabase(db: IDBDatabase, oldVersion: number): void {
         db.createObjectStore("current_group_sessions", {
             keyPath: "session.room_id",
         });
+    }
+    if (oldVersion < 12) {
+        db.createObjectStore("session_shared_devices");
     }
     // Expand as needed.
 }

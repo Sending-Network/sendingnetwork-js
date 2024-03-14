@@ -461,6 +461,10 @@ export class Crypto extends EventEmitter {
         return this.initTime
     }
 
+    public getThreshholdTime(): number {
+        return this.initTime - 24 * 3600 * 1000;
+    }
+
     /**
      * Whether to trust a others users signatures of their devices.
      * If false, devices will only be considered 'verified' if we have
@@ -2007,6 +2011,26 @@ export class Crypto extends EventEmitter {
         return this.deviceList.saveIfDirty(delay);
     }
 
+    public saveSessionSharedDevices(sessionId: string, sharedWithDevices: Record<string, Record<string, any>>): Promise<void> {
+        return this.cryptoStore.doTxn('readwrite',[IndexedDBCryptoStore.STORE_SESSION_SHARED_DEVICES], (txn)=>{
+            this.cryptoStore.storeSessionSharedDevices(sessionId, sharedWithDevices, txn);
+        })
+    }
+
+    public async getSessionSharedDevices(roomId: string, sessionId: string): Promise<Record<string, Record<string, any>>> {
+        let result: Record<string, Record<string, any>>
+        await this.cryptoStore.doTxn('readonly', [IndexedDBCryptoStore.STORE_SESSION_SHARED_DEVICES], (txn) => {
+            this.cryptoStore.getSessionSharedInfo(sessionId, txn, (sharedWithDevices) => {
+                result = sharedWithDevices;
+            });
+        });
+
+        // if (!result) {
+        //     result = await this.baseApis.getSessionShareMap(roomId, sessionId);
+        // }
+        return result;
+    }
+
     /**
      * Update the blocked/verified state of the given device
      *
@@ -2573,6 +2597,10 @@ export class Crypto extends EventEmitter {
             }
             logger.log(`Starting to track devices for room ${roomId} ...`);
             const members = await room.getEncryptionTargetMembers();
+            if (members.length > 200) {
+                logger.warn(`skip tracking devices for room ${roomId} with ${members.length} members`);
+                return
+            }
             members.forEach((m) => {
                 this.deviceList.startTrackingDeviceList(m.userId);
             });
@@ -2734,8 +2762,13 @@ export class Crypto extends EventEmitter {
 
         const roomId = event.getRoomId();
 
+        const memberThreshhold = 200
         const joinedMemberCount = room.getJoinedMemberCount();
-        const algorithm = joinedMemberCount > 200 ? olmlib.MEGOLM_RATCHET_ALGORITHM : olmlib.MEGOLM_ALGORITHM;
+        if (joinedMemberCount > memberThreshhold) {
+            logger.info(`skip encrypt message for ${event.getId()} in ${roomId} with ${joinedMemberCount} members`)
+            return
+        }
+        const algorithm = joinedMemberCount > 0 ? olmlib.MEGOLM_RATCHET_ALGORITHM : olmlib.MEGOLM_ALGORITHM;
         const alg = this.getRoomEncryptor(roomId, algorithm, {});
         if (!alg) {
             // SendingNetworkClient has already checked that this room should be encrypted,
@@ -2881,7 +2914,10 @@ export class Crypto extends EventEmitter {
         ).then((value: boolean) => {
             if (value) {
                 // already have the key
-                logger.info(`skip pulling keys for ${sessionId}`)
+                console.info(`skip pulling existing key for ${sessionId}`)
+                event.attemptDecryption(this, {isRetry: true}).catch(e => {
+                    console.warn(`retry decrypt event ${event.getId()} fail with existing key ${sessionId}: ${e}`)
+                })
                 return
             }
             logger.info(`try pulling keys for ${sessionId}`)
@@ -3099,7 +3135,7 @@ export class Crypto extends EventEmitter {
                 this.secretStorage.onRequestReceived(event);
             } else if (event.getType() === "m.secret.send") {
                 this.secretStorage.onSecretReceived(event);
-            } else if (event.getType() === "org.sendingnetwork.room_key.withheld") {
+            } else if (event.getType() === "org.matrix.room_key.withheld") {
                 this.onRoomKeyWithheldEvent(event);
             } else if (event.getContent().transaction_id) {
                 this.onKeyVerificationMessage(event);
@@ -3523,7 +3559,7 @@ export class Crypto extends EventEmitter {
      *
      * @param {IncomingRoomKeyRequest} req
      */
-    private async processReceivedRoomKeyRequest(req: IncomingRoomKeyRequest): Promise<void> {
+    private async processReceivedRoomKeyRequest(req: IncomingRoomKeyRequest, isRetry: boolean = false): Promise<void> {
         const userId = req.userId;
         const deviceId = req.deviceId;
 
@@ -3534,19 +3570,30 @@ export class Crypto extends EventEmitter {
         logger.log(`m.room_key_request from ${userId}:${deviceId}` +
             ` for ${roomId} / ${body.session_id} alg ${alg} (id ${req.requestId})`);
 
+        const device = this.deviceList.getStoredDevice(userId, deviceId);
+        if (!device) {
+            logger.debug(`Ignoring keyshare for unknown device ${userId}:${deviceId}`);
+            if (!isRetry) {
+                logger.debug(`retry processing Key request for unknown device ${userId}:${deviceId}`);
+                this.deviceList.invalidateUserDeviceList(userId)
+                return this.deviceList.refreshOutdatedDeviceLists().then(_ => {
+                    if (this.deviceList.getStoredDevice(userId, deviceId)) {
+                        return this.processReceivedRoomKeyRequest(req, isRetry=true);
+                    } else {
+                        logger.debug(`failed retry processing Key request for ${userId}:${deviceId}`);
+                        return
+                    }
+                })
+            }
+            return;
+        }
+
         if (userId !== this.userId) {
             const encryptor = this.getRoomEncryptor(roomId, alg);
             if (!encryptor) {
                 logger.debug(`room key request for unencrypted room ${roomId}`);
                 return;
             }
-            const device = this.deviceList.getStoredDevice(userId, deviceId);
-            if (!device) {
-                this.deviceList.invalidateUserDeviceList(userId)
-                logger.debug(`Ignoring keyshare for unknown device ${userId}:${deviceId}`);
-                return;
-            }
-
             try {
                 await encryptor.reshareKeyWithDevice(body.sender_key, body.session_id, userId, device);
             } catch (e) {

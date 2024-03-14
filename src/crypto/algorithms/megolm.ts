@@ -702,7 +702,7 @@ class MegolmEncryption extends EncryptionAlgorithm {
             contentMap[userId][deviceId] = message;
         }
 
-        await this.baseApis.sendToDevice("org.sendingnetwork.room_key.withheld", contentMap);
+        await this.baseApis.sendToDevice("org.matrix.room_key.withheld", contentMap);
 
         // record the fact that we notified these blocked devices
         for (const userId of Object.keys(contentMap)) {
@@ -1357,7 +1357,7 @@ class MegolmDecryption extends DecryptionAlgorithm {
     }
 
     private requestKeysForEvent(event: SendingNetworkEvent): void {
-        if (event.getTs() < this.crypto.getInitTime()) {
+        if (event.getTs() < this.crypto.getThreshholdTime()) {
             console.info(`skip requesting keys for old event: ${event.getId()}`)
             return
         }

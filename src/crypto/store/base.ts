@@ -130,6 +130,12 @@ export interface CryptoStore {
         txn: unknown,
     ): void
 
+    // session shared devices
+    storeSessionSharedDevices(sessionId: string,
+        sharedWithDevices: Record<string, Record<string, any>>, txn: unknown): void
+    getSessionSharedInfo(sessionId: string, txn: unknown,
+        func: (sharedWithDevices: Record<string, Record<string, any>>) => void): void
+
     // Device Data
     getEndToEndDeviceData(txn: unknown, func: (deviceData: IDeviceData | null) => void): void;
     storeEndToEndDeviceData(deviceData: IDeviceData, txn: unknown): void;

@@ -76,6 +76,7 @@ export interface InboundGroupSessionRecord {
     sessionId: string;
     sessionData: InboundGroupSessionData;
     sessionKey: string;
+    chainIndex: number;
 }
 
 /**
@@ -1199,7 +1200,8 @@ export class OlmDevice {
                                 senderCurve25519Key: senderKey,
                                 sessionId: sessionId,
                                 sessionData: sessionData,
-                                sessionKey: session.export_session(session.first_known_index())
+                                sessionKey: session.export_session(session.first_known_index()),
+                                chainIndex: session.first_known_index(),
                             }
                         } finally {
                             session.free();
@@ -1265,7 +1267,8 @@ export class OlmDevice {
                                 senderCurve25519Key: senderKey,
                                 sessionId: sessionId,
                                 sessionData: groupSession,
-                                sessionKey: session.export_session(session.first_known_index())
+                                sessionKey: session.export_session(session.first_known_index()),
+                                chainIndex: session.first_known_index()
                             }
                         });
                     },
@@ -1403,11 +1406,12 @@ export class OlmDevice {
                                         msgInfo.id !== eventId ||
                                         msgInfo.timestamp !== timestamp
                                     ) {
-                                        error = new Error(
-                                            "Duplicate message index, possible replay attack: " +
-                                            messageIndexKey,
-                                        );
-                                        return;
+                                        // error = new Error(
+                                        //     "Duplicate message index, possible replay attack: " +
+                                        //     messageIndexKey,
+                                        // );
+                                        // return;
+                                        logger.warn('Duplicate message index, possible replay attack: ' + messageIndexKey)
                                     }
                                 }
                                 this.inboundGroupSessionMessageIndexes[messageIndexKey] = {

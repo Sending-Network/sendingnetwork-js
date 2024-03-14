@@ -251,53 +251,60 @@ class MegolmRatchetEncryption extends EncryptionAlgorithm {
         // returns a promise which resolves once the keyshare is successful.
         const prepareSession = async (oldSession: OutboundSessionInfo) => {
             // session = oldSession;
-            let skipShare = false
             const sharedHistory = isRoomSharedHistory(room);
-
-            const sessionRecord = await this.olmDevice.getCurrentGroupSession(this.roomId)
+            let isNewSession = false
+            let senderClaimedEd25519Key = null
+            let sessionRecord = await this.olmDevice.getCurrentGroupSession(this.roomId)
             if (sessionRecord && sessionRecord.sessionId) {
                 // try to get outbound session from local store
                 session = this.outboundSessions[sessionRecord.sessionId]
                 if (!session) {
-                    // the sessionId is from other members and no need to share.
                     session = new OutboundSessionInfo(sessionRecord.sessionId, sharedHistory)
                     session.record = sessionRecord;
-                    skipShare = true;
-                    return session
+                    this.outboundSessions[sessionRecord.sessionId] = session;
                 }
-                logger.log(`get existing group session: ${sessionRecord.sessionId}, skipShare: ${skipShare}`)
-            }
+                const claimedKeys = sessionRecord.sessionData.keysClaimed || {};
+                senderClaimedEd25519Key = claimedKeys.ed25519 || null;
 
-            // history visibility changed
-            if (session && sharedHistory !== session.sharedHistory) {
-                session = null;
-            }
-
-            // need to make a brand new session?
-            if (session && session.needsRotation(this.sessionRotationPeriodMsgs,
-                this.sessionRotationPeriodMs)
-            ) {
-                logger.log("Starting new megolm session because we need to rotate.");
-                session = null;
-            }
-
-            // determine if we have shared with anyone we shouldn't have
-            if (session && session.sharedWithTooManyDevices(devicesInRoom)) {
-                session = null;
-            }
-
-            // no current session found
-            if (!session) {
+                logger.log(`[crypto] get existing group session: ${sessionRecord.sessionId}`)
+            } else {
+                // create new outbound session
                 logger.log(`Starting new megolm session for room ${this.roomId}`);
                 session = await this.prepareNewSession(sharedHistory);
                 logger.log(`Started new megolm session ${session.sessionId} ` +
                     `for room ${this.roomId}`);
                 this.outboundSessions[session.sessionId] = session;
+
+                const key = this.olmDevice.getOutboundGroupSessionKey(session.sessionId);
+                var inbound_session = new global.Olm.InboundGroupSession();
+                inbound_session.create(key.key);
+                sessionRecord = {
+                    senderCurve25519Key: this.olmDevice.deviceCurve25519Key,
+                    sessionId: session.sessionId,
+                    sessionData: null,
+                    sessionKey: inbound_session.export_session(inbound_session.first_known_index()),
+                    chainIndex: inbound_session.first_known_index()
+                };
+                senderClaimedEd25519Key = this.olmDevice.deviceEd25519Key
+                isNewSession = true
             }
 
             // now check if we need to share with any devices
-            const shareMap = {};
+            const shareMap: Record<string, DeviceInfo[]> = {};
+            if (Object.keys(session.sharedWithDevices).length == 0) {
+                try {
+                    const timeStart = Date.now()
+                    const sharedDevices = await this.crypto.getSessionSharedDevices(this.roomId, session.sessionId)
+                    if (sharedDevices) {
+                        session.sharedWithDevices = sharedDevices
+                    }
+                    logger.info(`[crypto] getSessionSharedDevices cost time ${Date.now() - timeStart} ms`)
+                } catch (e) {
+                    logger.warn(`[crypto] Failed to load shared devices for session ${session.sessionId}`, e)
+                }
+            }
 
+            let skipCount = 0
             for (const [userId, userDevices] of Object.entries(devicesInRoom)) {
                 for (const [deviceId, deviceInfo] of Object.entries(userDevices)) {
                     const key = deviceInfo.getIdentityKey();
@@ -312,27 +319,36 @@ class MegolmRatchetEncryption extends EncryptionAlgorithm {
                     ) {
                         shareMap[userId] = shareMap[userId] || [];
                         shareMap[userId].push(deviceInfo);
+                    } else {
+                        skipCount++
                     }
                 }
             }
+            logger.info(`[crypto] skip sharing to ${skipCount} devices because it has been shared`)
 
-            const key = this.olmDevice.getOutboundGroupSessionKey(session.sessionId);
-            const payload: IPayload = {
-                type: "m.room_key",
+            const key = {
+                chain_index: sessionRecord.chainIndex,
+                key: sessionRecord.sessionKey
+            };
+            const payload = {
+                type: "m.forwarded_room_key",
                 content: {
                     "algorithm": olmlib.MEGOLM_RATCHET_ALGORITHM,
                     "room_id": this.roomId,
-                    "session_id": session.sessionId,
-                    "session_key": key.key,
-                    "chain_index": key.chain_index,
-                    "org.sendingnetwork.msc3061.shared_history": sharedHistory,
+                    "session_id": sessionRecord.sessionId,
+                    "session_key": sessionRecord.sessionKey,
+                    "chain_index": sessionRecord.chainIndex,
+                    "sender_key": sessionRecord.senderCurve25519Key,
+                    "sender_claimed_ed25519_key": senderClaimedEd25519Key,
+                    "forwarding_curve25519_key_chain": [],
+                    "org.sendingnetwork.msc3061.shared_history": sharedHistory || false,
                 },
             };
             const [devicesWithoutSession, olmSessions] = await olmlib.getExistingOlmSessions(
                 this.olmDevice, this.baseApis, shareMap,
             );
 
-            await Promise.all([
+            const allSharePromise = Promise.all([
                 (async () => {
                     // share keys with devices that we already have a session for
                     logger.debug(`Sharing keys with existing Olm sessions in ${this.roomId}`, olmSessions);
@@ -423,7 +439,17 @@ class MegolmRatchetEncryption extends EncryptionAlgorithm {
                     await this.notifyBlockedDevices(session, blockedMap);
                     logger.debug(`Notified ${blockedCount} newly blocked devices in ${this.roomId}`, blockedMap);
                 })(),
-            ]);
+            ])
+            // .then(_ => {
+            //     // this.crypto.saveSessionSharedDevices(sessionRecord.sessionId, session.sharedWithDevices)
+            // })
+            const timeStart = Date.now()
+            logger.info(`[crypto] start waiting for new session ${sessionRecord.sessionId} to be shared`)
+            await allSharePromise
+            logger.info(`[crypto] end waiting for new session ${sessionRecord.sessionId} to be shared ${Date.now() - timeStart} ms`)
+            const timeBegin = Date.now()
+            await this.crypto.saveSessionSharedDevices(sessionRecord.sessionId, session.sharedWithDevices)
+            logger.info(`[crypto] saveSessionSharedDevices for ${sessionRecord.sessionId} cost ${Date.now() - timeBegin} ms`)
         };
 
         // helper which returns the session prepared by prepareSession
@@ -436,7 +462,7 @@ class MegolmRatchetEncryption extends EncryptionAlgorithm {
 
         // Ensure any failures are logged for debugging
         prom.catch(e => {
-            logger.error(`Failed to ensure outbound session in ${this.roomId}`, e);
+            logger.error(`[crypto] Failed to ensure outbound session in ${this.roomId}`, e);
         });
 
         // setupPromise resolves to `session` whether or not the share succeeds
@@ -586,6 +612,7 @@ class MegolmRatchetEncryption extends EncryptionAlgorithm {
         const promises = [];
         for (let i = 0; i < userDeviceMap.length; i++) {
             const encryptedContent = {
+                room_id: this.roomId,
                 trace_id: session.sessionId,
                 algorithm: olmlib.OLM_ALGORITHM,
                 sender_key: this.olmDevice.deviceCurve25519Key,
@@ -698,7 +725,7 @@ class MegolmRatchetEncryption extends EncryptionAlgorithm {
             contentMap[userId][deviceId] = message;
         }
 
-        await this.baseApis.sendToDevice("org.sendingnetwork.room_key.withheld", contentMap);
+        await this.baseApis.sendToDevice("org.matrix.room_key.withheld", contentMap);
 
         // record the fact that we notified these blocked devices
         for (const userId of Object.keys(contentMap)) {
@@ -732,7 +759,7 @@ class MegolmRatchetEncryption extends EncryptionAlgorithm {
 
         if (!key) {
             logger.warn(
-                `No inbound session key found for megolm ${sessionId}: not re-sharing keys`,
+                `[crypto] No inbound session key found for megolm ${sessionId}: not re-sharing keys`,
             );
             return;
         }
@@ -779,7 +806,7 @@ class MegolmRatchetEncryption extends EncryptionAlgorithm {
                 [device.deviceId]: encryptedContent,
             },
         });
-        logger.debug(`Re-shared key for megolm session ${sessionId} with ${userId}:${device.deviceId}`);
+        logger.debug(`[crypto][ratchet] Re-shared key for megolm session ${sessionId} with ${userId}:${device.deviceId}`);
     }
 
     /**
@@ -848,7 +875,7 @@ class MegolmRatchetEncryption extends EncryptionAlgorithm {
                 );
                 logger.debug(`Shared ${taskDetail}`);
             } catch (e) {
-                logger.error(`Failed to share ${taskDetail}`);
+                logger.error(`[crypto] Failed to share ${taskDetail}`);
                 throw e;
             }
         }
@@ -991,7 +1018,7 @@ class MegolmRatchetEncryption extends EncryptionAlgorithm {
 
                 logger.debug(`Ready to encrypt events for ${this.roomId}`);
             } catch (e) {
-                logger.error(`Failed to prepare to encrypt events for ${this.roomId}`, e);
+                logger.error(`[crypto] Failed to prepare to encrypt events for ${this.roomId}`, e);
             } finally {
                 delete this.encryptionPreparationMetadata;
                 delete this.encryptionPreparation;
@@ -1325,11 +1352,10 @@ class MegolmRatchetDecryption extends DecryptionAlgorithm {
     }
 
     private requestKeysForEvent(event: SendingNetworkEvent): void {
-        if (event.getTs() < this.crypto.getInitTime()) {
+        if (event.getTs() < this.crypto.getThreshholdTime()) {
             console.info(`skip requesting keys for old event: ${event.getId()}`)
             return
         }
-
         const wireContent = event.getWireContent();
 
         const recipients = event.getKeyRequestRecipients(this.userId);
@@ -1344,6 +1370,7 @@ class MegolmRatchetDecryption extends DecryptionAlgorithm {
         setTimeout(() => {
             this.crypto.pullRoomKey(event.getRoomId(), wireContent.sender_key, wireContent.session_id, event)
         }, 5000)
+
     }
 
     /**
@@ -1365,6 +1392,7 @@ class MegolmRatchetDecryption extends DecryptionAlgorithm {
             senderPendingEvents.set(sessionId, new Set());
         }
         senderPendingEvents.get(sessionId).add(event);
+        logger.info(`[crypto][ratchet] addEventToPendingList: ${senderKey} | ${sessionId}`)
     }
 
     /**
@@ -1391,6 +1419,7 @@ class MegolmRatchetDecryption extends DecryptionAlgorithm {
         if (senderPendingEvents.size === 0) {
             delete this.pendingEvents[senderKey];
         }
+        logger.info(`[crypto][ratchet] removeEventFromPendingList: ${senderKey} | ${sessionId}`)
     }
 
     /**
@@ -1410,12 +1439,12 @@ class MegolmRatchetDecryption extends DecryptionAlgorithm {
             !sessionId ||
             !content.session_key
         ) {
-            logger.error("key event is missing fields");
+            logger.error("[crypto] key event is missing fields");
             return;
         }
 
         if (!senderKey) {
-            logger.error("key event has no sender key (not encrypted?)");
+            logger.error("[crypto] key event has no sender key (not encrypted?)");
             return;
         }
 
@@ -1432,14 +1461,14 @@ class MegolmRatchetDecryption extends DecryptionAlgorithm {
 
             senderKey = content.sender_key;
             if (!senderKey) {
-                logger.error("forwarded_room_key event is missing sender_key field");
+                logger.error("[crypto] forwarded_room_key event is missing sender_key field");
                 return;
             }
 
             const ed25519Key = content.sender_claimed_ed25519_key;
             if (!ed25519Key) {
                 logger.error(
-                    `forwarded_room_key_event is missing sender_claimed_ed25519_key field`,
+                    `[crypto] forwarded_room_key_event is missing sender_claimed_ed25519_key field`,
                 );
                 return;
             }
@@ -1481,7 +1510,7 @@ class MegolmRatchetDecryption extends DecryptionAlgorithm {
             // don't wait for the keys to be backed up for the server
             this.crypto.backupManager.backupGroupSession(senderKey, content.session_id);
         }).catch((e) => {
-            logger.error(`Error handling m.room_key_event: ${e}`);
+            logger.error(`[crypto] Error handling m.room_key_event: ${e}`);
         });
     }
 
@@ -1497,7 +1526,7 @@ class MegolmRatchetDecryption extends DecryptionAlgorithm {
         if (content.code === "m.no_olm") {
             const sender = event.getSender();
             logger.warn(
-                `${sender}:${senderKey} was unable to establish an olm session with us`,
+                `[crypto] ${sender}:${senderKey} was unable to establish an olm session with us`,
             );
             // if the sender says that they haven't been able to establish an olm
             // session, let's proactively establish one
@@ -1527,7 +1556,7 @@ class MegolmRatchetDecryption extends DecryptionAlgorithm {
                 );
                 if (!device) {
                     logger.info(
-                        "Couldn't find device for identity key " + senderKey +
+                        "[crypto] Couldn't find device for identity key " + senderKey +
                         ": not establishing session",
                     );
                     await this.olmDevice.recordSessionProblem(senderKey, "no_olm", false);
@@ -1722,11 +1751,13 @@ class MegolmRatchetDecryption extends DecryptionAlgorithm {
     private async retryDecryption(senderKey: string, sessionId: string): Promise<boolean> {
         const senderPendingEvents = this.pendingEvents[senderKey];
         if (!senderPendingEvents) {
+            logger.info(`[crypto][ratchet] no senderPendingEvents for ${senderKey} | ${sessionId}`)
             return true;
         }
 
         const pending = senderPendingEvents.get(sessionId);
         if (!pending) {
+            logger.info(`[crypto][ratchet] no pending from sender ${senderKey} | ${sessionId}`)
             return true;
         }
 

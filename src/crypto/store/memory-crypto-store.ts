@@ -468,8 +468,21 @@ export class MemoryCryptoStore implements CryptoStore {
         throw new Error('Method not implemented.');
     }
 
-    // Device Data
+    public storeSessionSharedDevices(
+        sessionId: string,
+        sharedWithDevices: Record<string, Record<string, any>>,
+        txn: IDBTransaction
+    ): void {
+        throw new Error('Method not implemented.');
+    }
+    public getSessionSharedInfo(
+        sessionId: string,
+        txn: IDBTransaction,
+    ): Promise<Record<string, Record<string, any>>> {
+        throw new Error('Method not implemented.');
+    }
 
+    // Device Data
     public getEndToEndDeviceData(txn: unknown, func: (deviceData: IDeviceData | null) => void): void {
         func(this.deviceData);
     }
