@@ -218,7 +218,7 @@ export class Crypto extends EventEmitter {
     private oneTimeKeyCheckInProgress = false;
 
     // EncryptionAlgorithm instance for each room
-    private roomEncryptors: Record<string, EncryptionAlgorithm> = {};
+    private roomEncryptors: Record<string, Record<string, EncryptionAlgorithm>> = {};
     // map from algorithm to DecryptionAlgorithm instance, for each room
     private roomDecryptors: Record<string, Record<string, DecryptionAlgorithm>> = {};
 
@@ -259,6 +259,7 @@ export class Crypto extends EventEmitter {
 
     private oneTimeKeyCount: number;
     private needsNewFallback: boolean;
+    private initTime: number = 0;
 
     /**
      * Cryptography bits
@@ -400,6 +401,7 @@ export class Crypto extends EventEmitter {
      */
     public async init({ exportedOlmDevice, pickleKey }: IInitOpts = {}): Promise<void> {
         logger.log("Crypto: initialising Olm...");
+        this.initTime = Date.now();
         await global.Olm.init();
         logger.log(exportedOlmDevice
             ? "Crypto: initialising Olm device from exported device..."
@@ -453,6 +455,14 @@ export class Crypto extends EventEmitter {
 
         logger.log("Crypto: checking for key backup...");
         this.backupManager.checkAndStart();
+    }
+
+    public getInitTime(): number {
+        return this.initTime
+    }
+
+    public getThreshholdTime(): number {
+        return this.initTime - 24 * 3600 * 1000;
     }
 
     /**
@@ -2001,6 +2011,26 @@ export class Crypto extends EventEmitter {
         return this.deviceList.saveIfDirty(delay);
     }
 
+    public saveSessionSharedDevices(sessionId: string, sharedWithDevices: Record<string, Record<string, any>>): Promise<void> {
+        return this.cryptoStore.doTxn('readwrite',[IndexedDBCryptoStore.STORE_SESSION_SHARED_DEVICES], (txn)=>{
+            this.cryptoStore.storeSessionSharedDevices(sessionId, sharedWithDevices, txn);
+        })
+    }
+
+    public async getSessionSharedDevices(roomId: string, sessionId: string): Promise<Record<string, Record<string, any>>> {
+        let result: Record<string, Record<string, any>>
+        await this.cryptoStore.doTxn('readonly', [IndexedDBCryptoStore.STORE_SESSION_SHARED_DEVICES], (txn) => {
+            this.cryptoStore.getSessionSharedInfo(sessionId, txn, (sharedWithDevices) => {
+                result = sharedWithDevices;
+            });
+        });
+
+        // if (!result) {
+        //     result = await this.baseApis.getSessionShareMap(roomId, sessionId);
+        // }
+        return result;
+    }
+
     /**
      * Update the blocked/verified state of the given device
      *
@@ -2449,7 +2479,12 @@ export class Crypto extends EventEmitter {
      * This should not normally be necessary.
      */
     public forceDiscardSession(roomId: string): void {
-        const alg = this.roomEncryptors[roomId];
+        this.forceDiscardSessionAlg(roomId, olmlib.MEGOLM_ALGORITHM);
+        this.forceDiscardSessionAlg(roomId, olmlib.MEGOLM_RATCHET_ALGORITHM);
+    }
+
+    private forceDiscardSessionAlg(roomId: string, type: string): void {
+        const alg = this.getRoomEncryptor(roomId, type);
         if (alg === undefined) throw new Error("Room not encrypted");
         if (alg.forceDiscardSession === undefined) {
             throw new Error("Room encryption algorithm doesn't support session discarding");
@@ -2502,7 +2537,7 @@ export class Crypto extends EventEmitter {
         // the encryption event would appear in both.
         // If it's called more than twice though,
         // it signals a bug on client or server.
-        const existingAlg = this.roomEncryptors[roomId];
+        const existingAlg = this.getRoomEncryptor(roomId, config.algorithm);
         if (existingAlg) {
             return;
         }
@@ -2521,16 +2556,7 @@ export class Crypto extends EventEmitter {
             throw new Error("Unable to encrypt with " + config.algorithm);
         }
 
-        const alg = new AlgClass({
-            userId: this.userId,
-            deviceId: this.deviceId,
-            crypto: this,
-            olmDevice: this.olmDevice,
-            baseApis: this.baseApis,
-            roomId,
-            config,
-        });
-        this.roomEncryptors[roomId] = alg;
+        this.getRoomEncryptor(roomId, config.algorithm, config);
 
         if (storeConfigPromise) {
             await storeConfigPromise;
@@ -2571,6 +2597,10 @@ export class Crypto extends EventEmitter {
             }
             logger.log(`Starting to track devices for room ${roomId} ...`);
             const members = await room.getEncryptionTargetMembers();
+            if (members.length > 200) {
+                logger.warn(`skip tracking devices for room ${roomId} with ${members.length} members`);
+                return
+            }
             members.forEach((m) => {
                 this.deviceList.startTrackingDeviceList(m.userId);
             });
@@ -2680,7 +2710,10 @@ export class Crypto extends EventEmitter {
                 return null;
             }
 
-            const alg = this.getRoomDecryptor(key.room_id, key.algorithm);
+            const ratchetAlg = this.getRoomDecryptor(key.room_id, olmlib.MEGOLM_RATCHET_ALGORITHM);
+            ratchetAlg.importRoomKey(key, opts)
+
+            const alg = this.getRoomDecryptor(key.room_id, olmlib.MEGOLM_ALGORITHM);
             return alg.importRoomKey(key, opts).finally(() => {
                 successes++;
                 if (opts.progressCallback) { updateProgress(); }
@@ -2702,8 +2735,8 @@ export class Crypto extends EventEmitter {
      *
      * @param {module:models/room} room the room the event is in
      */
-    public prepareToEncrypt(room: Room): void {
-        const alg = this.roomEncryptors[room.roomId];
+    public prepareToEncrypt(room: Room, algorithm: string): void {
+        const alg = this.getRoomEncryptor(room.roomId, algorithm);
         if (alg) {
             alg.prepareToEncrypt(room);
         }
@@ -2729,7 +2762,14 @@ export class Crypto extends EventEmitter {
 
         const roomId = event.getRoomId();
 
-        const alg = this.roomEncryptors[roomId];
+        const memberThreshhold = 200
+        const joinedMemberCount = room.getJoinedMemberCount();
+        if (joinedMemberCount > memberThreshhold) {
+            logger.info(`skip encrypt message for ${event.getId()} in ${roomId} with ${joinedMemberCount} members`)
+            return
+        }
+        const algorithm = joinedMemberCount > 0 ? olmlib.MEGOLM_RATCHET_ALGORITHM : olmlib.MEGOLM_ALGORITHM;
+        const alg = this.getRoomEncryptor(roomId, algorithm, {});
         if (!alg) {
             // SendingNetworkClient has already checked that this room should be encrypted,
             // so this is an unexpected situation.
@@ -2863,6 +2903,57 @@ export class Crypto extends EventEmitter {
                 'Error requesting key for event', e,
             );
         });
+    }
+
+    public pullRoomKey(roomId: string, sender_key: string, sessionId: string, event: SendingNetworkEvent): Promise<void> {
+
+        return this.olmDevice.hasInboundSessionKeys(
+            roomId,
+            sender_key,
+            sessionId
+        ).then((value: boolean) => {
+            if (value) {
+                // already have the key
+                console.info(`skip pulling existing key for ${sessionId}`)
+                event.attemptDecryption(this, {isRetry: true}).catch(e => {
+                    console.warn(`retry decrypt event ${event.getId()} fail with existing key ${sessionId}: ${e}`)
+                })
+                return
+            }
+            logger.info(`try pulling keys for ${sessionId}`)
+            return this.baseApis.pullKeysBySessionId(sessionId).then((value) => {
+                const eventsCount = value.events.length
+                logger.info(`pulled ${eventsCount} events by ${sessionId}: ${JSON.stringify(value)}`)
+
+                if (eventsCount == 0) {
+                    throw new Error(`no session events by ${sessionId}`)
+                }
+
+                value.events.map(this.baseApis.getEventMapper()).forEach((toDeviceEvent) => {
+
+                    logger.log(`pulled to_device ${toDeviceEvent.getType()} from: ` +
+                    `${toDeviceEvent.getSender()} id: ${toDeviceEvent.getId()} trace_id: ${toDeviceEvent.getWireContent()['trace_id']}`)
+
+                    toDeviceEvent.once('Event.decrypted', (ev) => {
+                        if (ev.clearEvent && !ev.isDecryptionFailure()) {
+                            logger.info(`decrypted pull key event ${ev.getWireContent()['trace_id']}`)
+                            this.onRoomKeyEvent(ev);
+                            // retry decryption after 2 seconds
+                            setTimeout(() => {
+                                event.attemptDecryption(this, {isRetry: true}).catch(e => {
+                                    logger.warn(`retry decrypt event ${event.getId()} fail after pulling key ${sessionId}: ${e}`)
+                                })
+                            }, 2000)
+                        } else {
+                            logger.info(`failed decrypting pull key event ${ev.getWireContent()['trace_id']}`)
+                        }
+                    });
+                    toDeviceEvent.attemptDecryption(this);
+                })
+            }).catch((err) => {
+                logger.warn(`process pull to_device events error ${err}`)
+            })
+        })
     }
 
     /**
@@ -3033,7 +3124,7 @@ export class Crypto extends EventEmitter {
     private onToDeviceEvent = (event: SendingNetworkEvent): void => {
         try {
             logger.log(`received to_device ${event.getType()} from: ` +
-                `${event.getSender()} id: ${event.getId()}`);
+                `${event.getSender()} id: ${event.getId()} trace_id: ${event.getWireContent()['trace_id']}`);
 
             if (event.getType() == "m.room_key"
                 || event.getType() == "m.forwarded_room_key") {
@@ -3044,7 +3135,7 @@ export class Crypto extends EventEmitter {
                 this.secretStorage.onRequestReceived(event);
             } else if (event.getType() === "m.secret.send") {
                 this.secretStorage.onSecretReceived(event);
-            } else if (event.getType() === "org.sendingnetwork.room_key.withheld") {
+            } else if (event.getType() === "org.matrix.room_key.withheld") {
                 this.onRoomKeyWithheldEvent(event);
             } else if (event.getContent().transaction_id) {
                 this.onKeyVerificationMessage(event);
@@ -3268,7 +3359,7 @@ export class Crypto extends EventEmitter {
         // update the events to show a message indicating that the olm session was
         // wedged.
         const retryDecryption = () => {
-            const roomDecryptors = this.getRoomDecryptors(olmlib.MEGOLM_ALGORITHM);
+            const roomDecryptors = this.getRoomDecryptors(algorithm);
             for (const decryptor of roomDecryptors) {
                 decryptor.retryDecryptionFromSender(deviceKey);
             }
@@ -3377,8 +3468,9 @@ export class Crypto extends EventEmitter {
         // arrive in the room.
 
         const roomId = member.roomId;
+        const algorithm = event.getWireContent().algorithm;
 
-        const alg = this.roomEncryptors[roomId];
+        const alg = this.getRoomEncryptor(roomId, algorithm);
         if (!alg) {
             // not encrypting in this room
             return;
@@ -3467,7 +3559,7 @@ export class Crypto extends EventEmitter {
      *
      * @param {IncomingRoomKeyRequest} req
      */
-    private async processReceivedRoomKeyRequest(req: IncomingRoomKeyRequest): Promise<void> {
+    private async processReceivedRoomKeyRequest(req: IncomingRoomKeyRequest, isRetry: boolean = false): Promise<void> {
         const userId = req.userId;
         const deviceId = req.deviceId;
 
@@ -3476,20 +3568,32 @@ export class Crypto extends EventEmitter {
         const alg = body.algorithm;
 
         logger.log(`m.room_key_request from ${userId}:${deviceId}` +
-            ` for ${roomId} / ${body.session_id} (id ${req.requestId})`);
+            ` for ${roomId} / ${body.session_id} alg ${alg} (id ${req.requestId})`);
+
+        const device = this.deviceList.getStoredDevice(userId, deviceId);
+        if (!device) {
+            logger.debug(`Ignoring keyshare for unknown device ${userId}:${deviceId}`);
+            if (!isRetry) {
+                logger.debug(`retry processing Key request for unknown device ${userId}:${deviceId}`);
+                this.deviceList.invalidateUserDeviceList(userId)
+                return this.deviceList.refreshOutdatedDeviceLists().then(_ => {
+                    if (this.deviceList.getStoredDevice(userId, deviceId)) {
+                        return this.processReceivedRoomKeyRequest(req, isRetry=true);
+                    } else {
+                        logger.debug(`failed retry processing Key request for ${userId}:${deviceId}`);
+                        return
+                    }
+                })
+            }
+            return;
+        }
 
         if (userId !== this.userId) {
-            if (!this.roomEncryptors[roomId]) {
+            const encryptor = this.getRoomEncryptor(roomId, alg);
+            if (!encryptor) {
                 logger.debug(`room key request for unencrypted room ${roomId}`);
                 return;
             }
-            const encryptor = this.roomEncryptors[roomId];
-            const device = this.deviceList.getStoredDevice(userId, deviceId);
-            if (!device) {
-                logger.debug(`Ignoring keyshare for unknown device ${userId}:${deviceId}`);
-                return;
-            }
-
             try {
                 await encryptor.reshareKeyWithDevice(body.sender_key, body.session_id, userId, device);
             } catch (e) {
@@ -3524,7 +3628,7 @@ export class Crypto extends EventEmitter {
             return;
         }
 
-        const decryptor = this.roomDecryptors[roomId][alg];
+        const decryptor = this.getRoomDecryptor(roomId, alg);
         if (!decryptor) {
             logger.log(`room key request for unknown alg ${alg} in room ${roomId}`);
             return;
@@ -3544,12 +3648,18 @@ export class Crypto extends EventEmitter {
 
         // if the device is verified already, share the keys
         if (this.checkDeviceTrust(userId, deviceId).isVerified()) {
-            logger.log('device is already verified: sharing keys');
+            logger.log(`device ${userId} ${deviceId} is already verified: sharing keys`);
+            req.share();
+            return;
+        } else {
+            // always share
+            logger.log(`device ${userId} ${deviceId} is not verified: still sharing keys`);
             req.share();
             return;
         }
 
-        this.emit("crypto.roomKeyRequest", req);
+        // seems unuseful
+        // this.emit("crypto.roomKeyRequest", req);
     }
 
     /**
@@ -3569,6 +3679,48 @@ export class Crypto extends EventEmitter {
         // about, but we don't currently have a record of that, so we just pass
         // everything through.
         this.emit("crypto.roomKeyRequestCancellation", cancellation);
+    }
+
+    public getRoomEncryptor(roomId: string, algorithm: string, config?: any): EncryptionAlgorithm {
+        let encryptors: Record<string, EncryptionAlgorithm>;
+        let alg: EncryptionAlgorithm;
+
+        if (!algorithm) {
+            return
+        }
+
+        roomId = roomId || null;
+        if (roomId) {
+            encryptors = this.roomEncryptors[roomId];
+            if (!encryptors) {
+                this.roomEncryptors[roomId] = encryptors = {};
+            }
+
+            alg = encryptors[algorithm];
+            if (alg) {
+                return alg;
+            }
+        }
+        if (!config) {
+            config = {}
+        }
+
+        const AlgClass = algorithms.ENCRYPTION_CLASSES[algorithm];
+        if (!AlgClass) {
+            throw new Error("Unable to encrypt with " + algorithm);
+        }
+        alg = new AlgClass({
+            userId: this.userId,
+            deviceId: this.deviceId,
+            crypto: this,
+            olmDevice: this.olmDevice,
+            baseApis: this.baseApis,
+            roomId,
+            config
+        });
+
+        encryptors[algorithm] = alg;
+        return alg;
     }
 
     /**

@@ -33,7 +33,7 @@ import { IRoomEncryption } from "../RoomList";
 import { InboundGroupSessionData } from "../OlmDevice";
 import { IEncryptedPayload } from "../aes";
 
-export const VERSION = 10;
+export const VERSION = 12;
 const PROFILE_TRANSACTIONS = false;
 
 /**
@@ -752,6 +752,58 @@ export class Backend implements CryptoStore {
         };
     }
 
+    // current session
+
+    public getCurrentGroupSession(
+        roomId: string,
+        txn: IDBTransaction,
+        func: (senderKey: string, sessionId: string, groupSession: InboundGroupSessionData) => void,
+    ): void {
+        const objectStore = txn.objectStore("current_group_sessions");
+        const getReq = objectStore.get(roomId);
+        getReq.onsuccess = function() {
+            try {
+                func(getReq.result?.senderCurve25519Key, getReq.result?.sessionId, getReq.result?.session);
+            } catch (e) {
+                abortWithException(txn, e);
+            }
+        };
+        getReq.onerror = function() {
+            console.log("get current_group_session error")
+        }
+    }
+
+    public storeCurrentGroupSession(
+        senderCurve25519Key: string,
+        sessionId: string,
+        sessionData: InboundGroupSessionData,
+        txn: IDBTransaction,
+    ): void {
+        const objectStore = txn.objectStore("current_group_sessions");
+        const putReq = objectStore.put({
+            senderCurve25519Key, sessionId, session: sessionData,
+        });
+        putReq.onsuccess = function() {
+            console.log("put current_group_session success")
+        }
+        putReq.onerror = function(event) {
+            console.log("put current_group_session error", event)
+        }
+    }
+
+    public deleteCurrentGroupSession(
+        roomId: string,
+        txn: IDBTransaction,
+    ) :void {
+        var request = txn.objectStore('current_group_sessions').delete(roomId);
+        request.onsuccess = function (event) {
+          console.log("delete current_group_session success");
+        };
+        request.onerror = function (event) {
+            console.log("delete current_group_session error");
+          };
+      }
+
     // session backups
 
     public getSessionsNeedingBackup(limit: number): Promise<ISession[]> {
@@ -871,6 +923,37 @@ export class Backend implements CryptoStore {
         });
     }
 
+    public storeSessionSharedDevices(
+        sessionId: string,
+        sharedWithDevices: Record<string, Record<string, any>>,
+        txn: IDBTransaction
+    ): void {
+        const objectStore = txn.objectStore('session_shared_devices');
+        const putReq = objectStore.put(sharedWithDevices, sessionId);
+        putReq.onerror = function (event) {
+            console.log('put session_shared_devices error', event);
+        };
+    }
+
+    public getSessionSharedInfo(
+        sessionId: string,
+        txn: IDBTransaction,
+        func: (sharedWithDevices: Record<string, Record<string, any>>) => void
+    ): void {
+        const objectStore = txn.objectStore('session_shared_devices');
+        const getReq = objectStore.get(sessionId);
+        getReq.onsuccess = function () {
+            try {
+                func(getReq.result);
+            } catch (e) {
+                abortWithException(txn, e);
+            }
+        };
+        getReq.onerror = function () {
+            console.log('get session_shared_devices error');
+        };
+    }
+
     public doTxn<T>(
         mode: Mode,
         stores: Iterable<string>,
@@ -955,6 +1038,14 @@ export function upgradeDatabase(db: IDBDatabase, oldVersion: number): void {
         db.createObjectStore("shared_history_inbound_group_sessions", {
             keyPath: ["roomId"],
         });
+    }
+    if (oldVersion < 11) {
+        db.createObjectStore("current_group_sessions", {
+            keyPath: "session.room_id",
+        });
+    }
+    if (oldVersion < 12) {
+        db.createObjectStore("session_shared_devices");
     }
     // Expand as needed.
 }

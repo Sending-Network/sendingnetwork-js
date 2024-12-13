@@ -457,8 +457,32 @@ export class MemoryCryptoStore implements CryptoStore {
         this.inboundGroupSessionsWithheld[k] = sessionData;
     }
 
-    // Device Data
+    // current group session
+    public getCurrentGroupSession(roomId: string, txn: IDBTransaction, func: (senderKey: string, sessionId: string, groupSession: InboundGroupSessionData) => void): void {
+        throw new Error('Method not implemented.');
+    }
+    public storeCurrentGroupSession(senderCurve25519Key: string, sessionId: string, sessionData: InboundGroupSessionData, txn: IDBTransaction): void {
+        throw new Error('Method not implemented.');
+    }
+    public deleteCurrentGroupSession(roomId: string, txn: IDBTransaction): void {
+        throw new Error('Method not implemented.');
+    }
 
+    public storeSessionSharedDevices(
+        sessionId: string,
+        sharedWithDevices: Record<string, Record<string, any>>,
+        txn: IDBTransaction
+    ): void {
+        throw new Error('Method not implemented.');
+    }
+    public getSessionSharedInfo(
+        sessionId: string,
+        txn: IDBTransaction,
+    ): Promise<Record<string, Record<string, any>>> {
+        throw new Error('Method not implemented.');
+    }
+
+    // Device Data
     public getEndToEndDeviceData(txn: unknown, func: (deviceData: IDeviceData | null) => void): void {
         func(this.deviceData);
     }

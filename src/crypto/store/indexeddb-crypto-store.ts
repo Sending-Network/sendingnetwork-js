@@ -36,6 +36,7 @@ import { IOlmDevice } from "../algorithms/megolm";
 import { IRoomEncryption } from "../RoomList";
 import { InboundGroupSessionData } from "../OlmDevice";
 import { IEncryptedPayload } from "../aes";
+import { send } from 'process';
 
 /**
  * Internal module. indexeddb storage for e2e.
@@ -52,7 +53,9 @@ import { IEncryptedPayload } from "../aes";
 export class IndexedDBCryptoStore implements CryptoStore {
     public static STORE_ACCOUNT = 'account';
     public static STORE_SESSIONS = 'sessions';
+    public static STORE_CURRENT_GROUP_SESSIONS = 'current_group_sessions';
     public static STORE_INBOUND_GROUP_SESSIONS = 'inbound_group_sessions';
+    public static STORE_SESSION_SHARED_DEVICES = 'session_shared_devices';
     public static STORE_INBOUND_GROUP_SESSIONS_WITHHELD = 'inbound_group_sessions_withheld';
     public static STORE_SHARED_HISTORY_INBOUND_GROUP_SESSIONS = 'shared_history_inbound_group_sessions';
     public static STORE_DEVICE_DATA = 'device_data';
@@ -522,6 +525,32 @@ export class IndexedDBCryptoStore implements CryptoStore {
         txn: IDBTransaction,
     ): void {
         this.backend.addEndToEndInboundGroupSession(senderCurve25519Key, sessionId, sessionData, txn);
+    }
+
+    getCurrentGroupSession(roomId: string, txn: IDBTransaction, func: (senderKey: string, sessionId: string, groupSession: InboundGroupSessionData) => void): void {
+        this.backend.getCurrentGroupSession(roomId, txn, func)
+    }
+    storeCurrentGroupSession(senderCurve25519Key: string, sessionId: string, sessionData: InboundGroupSessionData, txn: IDBTransaction): void {
+        this.backend.storeCurrentGroupSession(senderCurve25519Key, sessionId, sessionData, txn)
+    }
+    deleteCurrentGroupSession(roomId: string, txn: IDBTransaction): void {
+        this.backend.deleteCurrentGroupSession(roomId, txn)
+    }
+
+    public storeSessionSharedDevices(
+        sessionId: string,
+        sharedWithDevices: Record<string, Record<string, any>>,
+        txn: IDBTransaction
+    ): void {
+        this.backend.storeSessionSharedDevices(sessionId, sharedWithDevices, txn);
+    }
+
+    public getSessionSharedInfo(
+        sessionId: string,
+        txn: IDBTransaction,
+        func: (sharedWithDevices: Record<string, Record<string, any>>) => void
+    ): void {
+        return this.backend.getSessionSharedInfo(sessionId, txn, func);
     }
 
     /**

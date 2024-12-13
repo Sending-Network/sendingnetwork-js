@@ -73,6 +73,7 @@ export class CallEventHandler {
             }
             // now loop through the buffer chronologically and inject them
             for (const e of this.callEventBuffer) {
+                if (!this.eventIsACall(e)) return;
                 if (
                     e.getType() === EventType.CallInvite &&
                     ignoreCallIds.has(e.getContent().call_id)

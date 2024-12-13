@@ -34,6 +34,7 @@ import { SendingNetworkClient } from "../client";
 enum Algorithm {
     Olm = "m.olm.v1.curve25519-aes-sha2",
     Megolm = "m.megolm.v1.aes-sha2",
+    MegolmRatchet = "m.megolm.v1.aes-ratchet",
     MegolmBackup = "m.megolm_backup.v1.curve25519-aes-sha2",
 }
 
@@ -46,6 +47,11 @@ export const OLM_ALGORITHM = Algorithm.Olm;
  * sendingnetwork algorithm tag for megolm
  */
 export const MEGOLM_ALGORITHM = Algorithm.Megolm;
+
+/**
+ * sendingnetwork algorithm tag for megolm ratchet
+ */
+export const MEGOLM_RATCHET_ALGORITHM = Algorithm.MegolmRatchet;
 
 /**
  * sendingnetwork algorithm tag for megolm backups

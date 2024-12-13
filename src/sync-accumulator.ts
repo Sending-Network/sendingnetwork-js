@@ -118,7 +118,7 @@ interface IToDeviceEvent {
     type: string;
 }
 
-interface IToDevice {
+export interface IToDevice {
     events: IToDeviceEvent[];
 }
 

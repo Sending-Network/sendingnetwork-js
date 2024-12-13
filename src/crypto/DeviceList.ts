@@ -399,7 +399,8 @@ export class DeviceList extends EventEmitter {
     public getUserByIdentityKey(algorithm: string, senderKey: string): string {
         if (
             algorithm !== olmlib.OLM_ALGORITHM &&
-            algorithm !== olmlib.MEGOLM_ALGORITHM
+            algorithm !== olmlib.MEGOLM_ALGORITHM &&
+            algorithm !== olmlib.MEGOLM_RATCHET_ALGORITHM
         ) {
             // we only deal in olm keys
             return null;
@@ -973,7 +974,9 @@ async function storeDeviceKeys(
             // Should we warn the user about it somehow?
             logger.warn("Ed25519 key for device " + userId + ":" +
                deviceId + " has changed");
-            return false;
+
+            // accept the new keys
+            // return false;
         }
     } else {
         userStore[deviceId] = deviceStore = new DeviceInfo(deviceId);
